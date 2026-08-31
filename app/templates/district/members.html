@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Members – Churchgate{% endblock %}
+{% block content %}
+<div class="max-w-5xl mx-auto px-4 py-8">
+  <div class="flex justify-between items-center mb-6">
+    <h1 class="text-2xl font-bold">Members · {{ church.name }}</h1>
+    <a href="/district/members/add" class="px-4 py-2 rounded-xl bg-teal-500 text-white text-sm font-medium">Add member</a>
+  </div>
+  <div class="bg-white rounded-2xl border overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-slate-50 text-left"><tr>
+        <th class="p-3">Name</th><th class="p-3">Status</th><th class="p-3">Role detail</th><th class="p-3">Contact</th>
+      </tr></thead>
+      <tbody>
+        {% for m in members %}
+        <tr class="border-t">
+          <td class="p-3 font-medium">{{ m.full_name }}</td>
+          <td class="p-3 capitalize">{{ m.status.value }}</td>
+          <td class="p-3 text-slate-500">{{ m.worker_type or m.leader_type or "—" }}</td>
+          <td class="p-3 text-slate-500">{{ m.phone or m.email or "—" }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="p-6 text-center text-slate-400">No members yet</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

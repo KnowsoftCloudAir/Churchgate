@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Knowsoft Churchgate – One Body, Synchronized{% endblock %}
+{% block content %}
+<div class="min-h-screen bg-gradient-to-br from-navy-950 via-navy-900 to-teal-900 text-white">
+  <div class="max-w-5xl mx-auto px-6 pt-16 pb-24">
+    <div class="flex items-center gap-3 mb-12">
+      <img src="/static/img/knowsoft-logo.png" alt="Knowsoft" class="h-12 w-auto object-contain" onerror="this.outerHTML='<div class=\'w-12 h-12 rounded-xl bg-teal-500 flex items-center justify-center font-bold text-xl\'>K</div>'">
+      <div>
+        <div class="text-2xl font-bold">Knowsoft</div>
+        <div class="text-teal-300 text-sm font-medium">Churchgate</div>
+      </div>
+    </div>
+    <h1 class="text-4xl sm:text-5xl font-extrabold leading-tight mb-6">
+      One denomination.<br>
+      <span class="text-teal-300">Every level synchronized.</span>
+    </h1>
+    <p class="text-lg text-navy-200 max-w-xl mb-10">
+      From Global Church to District — register, structure, record attendance, offerings, growth and generate reports. Data flows upward: District → Group → State → Country → Global.
+    </p>
+    <div class="flex flex-wrap gap-4">
+      <a href="/auth/register-church" class="px-7 py-3.5 rounded-xl bg-teal-500 text-navy-950 font-semibold shadow-lg">Register Your Church</a>
+      <a href="/auth/login" class="px-7 py-3.5 rounded-xl bg-white/10 border border-white/20 font-semibold">Sign In</a>
+    </div>
+    <div class="mt-20 grid sm:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
+      <div class="bg-white/5 border border-white/10 rounded-2xl p-5"><div class="text-teal-300 font-bold mb-1">Global</div>Highest level · receives all data</div>
+      <div class="bg-white/5 border border-white/10 rounded-2xl p-5"><div class="text-teal-300 font-bold mb-1">Country → State</div>National & regional structure</div>
+      <div class="bg-white/5 border border-white/10 rounded-2xl p-5"><div class="text-teal-300 font-bold mb-1">Group → District</div>District is the primary unit</div>
+      <div class="bg-white/5 border border-white/10 rounded-2xl p-5"><div class="text-teal-300 font-bold mb-1">Analytics</div>Weekly to yearly charts & PDF</div>
+    </div>
+  </div>
+</div>
+{% endblock %}

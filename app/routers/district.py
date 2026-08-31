@@ -1,0 +1,231 @@
+from pathlib import Path
+from fastapi import APIRouter, Depends, Request, Form, HTTPException
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi.templating import Jinja2Templates
+from sqlmodel import Session, select
+from datetime import datetime, date, timedelta
+from io import BytesIO
+
+from app.database import get_session
+from app.models import User, UserRole, ChurchUnit, ChurchLevel, ChurchMember, WeeklyStat, MemberStatus
+from app.auth import require_user, require_roles
+
+router = APIRouter(prefix="/district", tags=["district"])
+templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent.parent / "templates"))
+
+def get_user_church(user: User, session: Session) -> ChurchUnit:
+    if not user.church_id:
+        raise HTTPException(400, "No church linked")
+    church = session.get(ChurchUnit, user.church_id)
+    if not church:
+        raise HTTPException(404, "Church not found")
+    return church
+
+@router.get("/members", response_class=HTMLResponse)
+async def list_members(
+    request: Request,
+    user: User = Depends(require_user),
+    session: Session = Depends(get_session)
+):
+    church = get_user_church(user, session)
+    members = session.exec(
+        select(ChurchMember).where(ChurchMember.church_id == church.id).order_by(ChurchMember.full_name)
+    ).all()
+    return templates.TemplateResponse("district/members.html", {
+        "request": request, "user": user, "church": church, "members": members
+    })
+
+@router.get("/members/add", response_class=HTMLResponse)
+async def add_member_page(
+    request: Request,
+    user: User = Depends(require_roles(UserRole.church_admin, UserRole.data_officer, UserRole.general_admin)),
+    session: Session = Depends(get_session)
+):
+    church = get_user_church(user, session)
+    return templates.TemplateResponse("district/member_form.html", {
+        "request": request, "user": user, "church": church
+    })
+
+@router.post("/members/add")
+async def add_member(
+    request: Request,
+    full_name: str = Form(...),
+    gender: str = Form(""),
+    phone: str = Form(""),
+    email: str = Form(""),
+    address: str = Form(""),
+    status: str = Form("member"),
+    worker_type: str = Form(""),
+    leader_type: str = Form(""),
+    user: User = Depends(require_roles(UserRole.church_admin, UserRole.data_officer, UserRole.general_admin)),
+    session: Session = Depends(get_session)
+):
+    church = get_user_church(user, session)
+    try:
+        st = MemberStatus(status)
+    except ValueError:
+        st = MemberStatus.member
+    m = ChurchMember(
+        church_id=church.id,
+        full_name=full_name.strip(),
+        gender=gender or None,
+        phone=phone or None,
+        email=email or None,
+        address=address or None,
+        status=st,
+        worker_type=worker_type or None if st == MemberStatus.worker else None,
+        leader_type=leader_type or None if st == MemberStatus.leader else None,
+        joined_date=date.today()
+    )
+    session.add(m)
+    session.commit()
+    return RedirectResponse("/district/members", status_code=303)
+
+@router.get("/stats/enter", response_class=HTMLResponse)
+async def enter_stats_page(
+    request: Request,
+    user: User = Depends(require_roles(UserRole.church_admin, UserRole.data_officer, UserRole.general_admin)),
+    session: Session = Depends(get_session)
+):
+    church = get_user_church(user, session)
+    # Default to current week's Monday
+    today = date.today()
+    week_start = today - timedelta(days=today.weekday())
+    return templates.TemplateResponse("district/stats_form.html", {
+        "request": request, "user": user, "church": church, "week_start": week_start.isoformat()
+    })
+
+@router.post("/stats/enter")
+async def enter_stats(
+    request: Request,
+    week_start: str = Form(...),
+    adult_male: int = Form(0),
+    adult_female: int = Form(0),
+    children_boys: int = Form(0),
+    children_girls: int = Form(0),
+    youth_male: int = Form(0),
+    youth_female: int = Form(0),
+    offering: float = Form(0),
+    tithe: float = Form(0),
+    donation: float = Form(0),
+    special_program_attendance: int = Form(0),
+    newcomers: int = Form(0),
+    converts: int = Form(0),
+    counseling: int = Form(0),
+    members_in_need: int = Form(0),
+    notes: str = Form(""),
+    user: User = Depends(require_roles(UserRole.church_admin, UserRole.data_officer, UserRole.general_admin)),
+    session: Session = Depends(get_session)
+):
+    church = get_user_church(user, session)
+    ws = date.fromisoformat(week_start)
+    # Upsert for the week
+    existing = session.exec(
+        select(WeeklyStat).where(WeeklyStat.church_id == church.id, WeeklyStat.week_start == ws)
+    ).first()
+    if existing:
+        existing.adult_male = adult_male
+        existing.adult_female = adult_female
+        existing.children_boys = children_boys
+        existing.children_girls = children_girls
+        existing.youth_male = youth_male
+        existing.youth_female = youth_female
+        existing.offering = offering
+        existing.tithe = tithe
+        existing.donation = donation
+        existing.special_program_attendance = special_program_attendance
+        existing.newcomers = newcomers
+        existing.converts = converts
+        existing.counseling = counseling
+        existing.members_in_need = members_in_need
+        existing.notes = notes or None
+        existing.entered_by = user.id
+        session.add(existing)
+    else:
+        stat = WeeklyStat(
+            church_id=church.id,
+            week_start=ws,
+            adult_male=adult_male, adult_female=adult_female,
+            children_boys=children_boys, children_girls=children_girls,
+            youth_male=youth_male, youth_female=youth_female,
+            offering=offering, tithe=tithe, donation=donation,
+            special_program_attendance=special_program_attendance,
+            newcomers=newcomers, converts=converts,
+            counseling=counseling, members_in_need=members_in_need,
+            notes=notes or None, entered_by=user.id
+        )
+        session.add(stat)
+    session.commit()
+    return RedirectResponse("/dashboard", status_code=303)
+
+@router.get("/reports/pdf")
+async def generate_pdf_report(
+    request: Request,
+    period: str = "monthly",
+    user: User = Depends(require_user),
+    session: Session = Depends(get_session)
+):
+    """Generate a simple PDF summary report."""
+    try:
+        from reportlab.lib.pagesizes import A4
+        from reportlab.pdfgen import canvas
+        from reportlab.lib.units import mm
+    except ImportError:
+        raise HTTPException(500, "PDF library not available")
+
+    church = get_user_church(user, session)
+    members = session.exec(select(ChurchMember).where(ChurchMember.church_id == church.id)).all()
+    stats = session.exec(
+        select(WeeklyStat).where(WeeklyStat.church_id == church.id).order_by(WeeklyStat.week_start.desc()).limit(12)
+    ).all()
+
+    buffer = BytesIO()
+    c = canvas.Canvas(buffer, pagesize=A4)
+    width, height = A4
+    y = height - 30 * mm
+
+    c.setFont("Helvetica-Bold", 16)
+    c.drawString(20 * mm, y, "Knowsoft Churchgate Report")
+    y -= 10 * mm
+    c.setFont("Helvetica", 11)
+    c.drawString(20 * mm, y, f"Church: {church.name} ({church.code}) · Level: {church.level.value}")
+    y -= 6 * mm
+    c.drawString(20 * mm, y, f"Period view: {period} · Generated: {datetime.utcnow().strftime('%Y-%m-%d %H:%M')} UTC")
+    y -= 12 * mm
+
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(20 * mm, y, "Members / Workers / Leaders")
+    y -= 7 * mm
+    c.setFont("Helvetica", 10)
+    for m in members[:40]:
+        line = f"{m.full_name} · {m.status.value}"
+        if m.worker_type:
+            line += f" ({m.worker_type})"
+        if m.leader_type:
+            line += f" [{m.leader_type}]"
+        c.drawString(22 * mm, y, line[:90])
+        y -= 5 * mm
+        if y < 25 * mm:
+            c.showPage()
+            y = height - 20 * mm
+
+    y -= 5 * mm
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(20 * mm, y, "Recent Weekly Statistics")
+    y -= 7 * mm
+    c.setFont("Helvetica", 9)
+    for s in stats:
+        total_att = s.adult_male + s.adult_female + s.children_boys + s.children_girls + s.youth_male + s.youth_female
+        line = f"Week {s.week_start}: Att {total_att} | Off {s.offering:.0f} Tithe {s.tithe:.0f} | New {s.newcomers} Conv {s.converts}"
+        c.drawString(22 * mm, y, line)
+        y -= 5 * mm
+        if y < 25 * mm:
+            c.showPage()
+            y = height - 20 * mm
+
+    c.save()
+    buffer.seek(0)
+    filename = f"churchgate_{church.code}_{period}.pdf"
+    return StreamingResponse(buffer, media_type="application/pdf", headers={
+        "Content-Disposition": f'attachment; filename="{filename}"'
+    })

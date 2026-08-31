@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}General Admin – Churchgate{% endblock %}
+{% block content %}
+<div class="max-w-5xl mx-auto px-4 py-8">
+  <h1 class="text-2xl font-bold mb-6">Knowsoft Churchgate Admin</h1>
+  <div class="grid lg:grid-cols-2 gap-8">
+    <div class="bg-white rounded-2xl border p-6">
+      <h2 class="font-semibold mb-4">Pending Churches ({{ pending|length }})</h2>
+      {% for c in pending %}
+      <div class="p-3 mb-3 rounded-xl bg-amber-50 border border-amber-100">
+        <p class="font-medium">{{ c.name }}</p>
+        <p class="text-xs text-slate-500">{{ c.code }} · {{ c.level.value }} · {{ c.email }}</p>
+        <div class="mt-2 flex gap-2">
+          <form method="post" action="/admin/churches/{{ c.id }}/approve"><button class="text-xs px-3 py-1 rounded bg-teal-500 text-white">Approve</button></form>
+          <form method="post" action="/admin/churches/{{ c.id }}/reject"><button class="text-xs px-3 py-1 rounded bg-red-100 text-red-700">Reject</button></form>
+        </div>
+      </div>
+      {% else %}
+      <p class="text-sm text-slate-400">No pending requests</p>
+      {% endfor %}
+    </div>
+    <div class="bg-white rounded-2xl border p-6">
+      <h2 class="font-semibold mb-4">All Churches</h2>
+      <ul class="space-y-2 max-h-96 overflow-y-auto text-sm">
+        {% for c in churches %}
+        <li class="flex justify-between p-2 rounded hover:bg-slate-50">
+          <span>{{ c.name }} <code class="text-xs text-slate-400">{{ c.code }}</code></span>
+          <span class="capitalize text-xs {% if c.approval_status=='approved' %}text-teal-600{% else %}text-amber-600{% endif %}">{{ c.approval_status }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+</div>
+{% endblock %}
