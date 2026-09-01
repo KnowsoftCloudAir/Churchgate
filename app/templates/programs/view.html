@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}{{ program.title }}{% endblock %}
+{% block content %}
+<div class="max-w-3xl mx-auto px-4 py-8">
+  <h1 class="text-2xl font-bold">{{ program.title }}</h1>
+  <p class="text-sm text-slate-500 mb-4">{{ church.name if church else '' }} · {{ program.program_date or '' }} · {{ program.location or '' }}</p>
+  <p class="text-slate-700 mb-6">{{ program.description or '' }}</p>
+
+  {% if can_upload %}
+  <form method="post" action="/programs/{{ program.id }}/photo" enctype="multipart/form-data" class="bg-slate-50 rounded-xl p-4 mb-6 flex flex-wrap gap-2 items-end">
+    <input type="file" name="file" accept="image/*" required class="text-sm">
+    <input name="caption" placeholder="Caption" class="px-3 py-2 rounded-lg border text-sm flex-1">
+    <button class="px-4 py-2 rounded-lg bg-navy-800 text-white text-sm">Upload photo (admin only)</button>
+  </form>
+  {% endif %}
+
+  <div class="space-y-6">
+    {% for ph in photos %}
+    <div class="bg-white border rounded-2xl overflow-hidden">
+      <img src="{{ ph.path }}" alt="" class="w-full max-h-96 object-contain bg-slate-100">
+      <div class="p-4">
+        <p class="text-sm text-slate-600 mb-2">{{ ph.caption or '' }}</p>
+        <div class="flex gap-3 text-sm mb-3">
+          <form method="post" action="/programs/photo/{{ ph.id }}/like">
+            <button class="{% if ph.liked %}text-teal-600 font-semibold{% else %}text-slate-500{% endif %}">♥ {{ ph.likes }}</button>
+          </form>
+          <a href="/programs/photo/{{ ph.id }}/download" class="text-teal-600">Download</a>
+        </div>
+        <ul class="text-sm space-y-1 mb-3">
+          {% for c in ph.comments %}
+          <li><span class="font-medium">{{ c.user }}</span>: {{ c.body }}</li>
+          {% endfor %}
+        </ul>
+        <form method="post" action="/programs/photo/{{ ph.id }}/comment" class="flex gap-2">
+          <input name="body" required placeholder="Comment…" class="flex-1 px-3 py-2 rounded-lg border text-sm">
+          <button class="px-3 py-2 rounded-lg bg-teal-500 text-white text-sm">Post</button>
+        </form>
+      </div>
+    </div>
+    {% else %}
+    <p class="text-slate-400 text-sm">No photos yet. Church admin can upload.</p>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

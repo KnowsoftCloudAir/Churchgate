@@ -9,7 +9,7 @@ import secrets
 import string
 
 from app.database import get_session
-from app.models import User, UserRole, ChurchUnit, ChurchLevel, ApprovalStatus
+from app.models import User, UserRole, ChurchUnit, ChurchLevel, ApprovalStatus, ChurchMember
 from app.auth import (
     verify_password, get_password_hash, create_access_token,
     get_current_user, ACCESS_TOKEN_EXPIRE_MINUTES
@@ -51,6 +51,19 @@ async def login(
         if church and church.approval_status != "approved":
             return templates.TemplateResponse("auth/login.html", {
                 "request": request, "error": "Your church is still pending approval by Knowsoft Admin."
+            }, status_code=400)
+    # Members need approved membership for full login
+    if user.role == UserRole.member:
+        m = session.get(ChurchMember, user.member_id) if user.member_id else None
+        if not m:
+            m = session.exec(select(ChurchMember).where(ChurchMember.email == user.email)).first()
+        if m and m.approval_status == "pending":
+            return templates.TemplateResponse("auth/login.html", {
+                "request": request, "error": "Your membership is pending district approval."
+            }, status_code=400)
+        if m and m.approval_status in ("rejected", "discontinued"):
+            return templates.TemplateResponse("auth/login.html", {
+                "request": request, "error": "Membership not active."
             }, status_code=400)
 
     token = create_access_token({"sub": user.email})

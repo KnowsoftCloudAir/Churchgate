@@ -229,3 +229,100 @@ async def generate_pdf_report(
     return StreamingResponse(buffer, media_type="application/pdf", headers={
         "Content-Disposition": f'attachment; filename="{filename}"'
     })
+
+
+@router.get("/approvals", response_class=HTMLResponse)
+async def pending_members(
+    request: Request,
+    user: User = Depends(require_roles(UserRole.church_admin, UserRole.general_admin)),
+    session: Session = Depends(get_session)
+):
+    church = get_user_church(user, session)
+    pending = session.exec(
+        select(ChurchMember).where(
+            ChurchMember.church_id == church.id,
+            ChurchMember.approval_status == "pending"
+        ).order_by(ChurchMember.created_at.desc())
+    ).all()
+    approved = session.exec(
+        select(ChurchMember).where(
+            ChurchMember.church_id == church.id,
+            ChurchMember.approval_status == "approved"
+        ).order_by(ChurchMember.full_name)
+    ).all()
+    discontinue = session.exec(
+        select(ChurchMember).where(
+            ChurchMember.church_id == church.id,
+            ChurchMember.discontinue_requested == True
+        )
+    ).all()
+    return templates.TemplateResponse("district/approvals.html", {
+        "request": request, "user": user, "church": church,
+        "pending": pending, "approved": approved, "discontinue": discontinue
+    })
+
+@router.post("/approvals/{member_id}/approve")
+async def approve_member(
+    member_id: int,
+    status: str = Form("member"),
+    worker_type: str = Form(""),
+    leader_type: str = Form(""),
+    can_enter_stats: str = Form(""),
+    user: User = Depends(require_roles(UserRole.church_admin, UserRole.general_admin)),
+    session: Session = Depends(get_session)
+):
+    member = session.get(ChurchMember, member_id)
+    if not member:
+        raise HTTPException(404, "Not found")
+    church = get_user_church(user, session)
+    if user.role != UserRole.general_admin and member.church_id != church.id:
+        raise HTTPException(403, "Not your member")
+    member.approval_status = "approved"
+    member.status = status
+    member.worker_type = worker_type or None
+    member.leader_type = leader_type or None
+    session.add(member)
+    # link user
+    u = session.exec(select(User).where(User.email == member.email)).first()
+    if u:
+        u.member_id = member.id
+        u.church_id = member.church_id
+        if can_enter_stats == "yes":
+            u.can_enter_stats = True
+        session.add(u)
+    session.commit()
+    return RedirectResponse("/district/approvals", status_code=303)
+
+@router.post("/approvals/{member_id}/reject")
+async def reject_member(
+    member_id: int,
+    user: User = Depends(require_roles(UserRole.church_admin, UserRole.general_admin)),
+    session: Session = Depends(get_session)
+):
+    member = session.get(ChurchMember, member_id)
+    if not member:
+        raise HTTPException(404, "Not found")
+    member.approval_status = "rejected"
+    session.add(member)
+    session.commit()
+    return RedirectResponse("/district/approvals", status_code=303)
+
+@router.post("/approvals/{member_id}/discontinue")
+async def confirm_discontinue(
+    member_id: int,
+    user: User = Depends(require_roles(UserRole.church_admin, UserRole.general_admin)),
+    session: Session = Depends(get_session)
+):
+    member = session.get(ChurchMember, member_id)
+    if not member:
+        raise HTTPException(404, "Not found")
+    member.approval_status = "discontinued"
+    member.is_active = False
+    member.discontinue_requested = False
+    session.add(member)
+    u = session.exec(select(User).where(User.email == member.email)).first()
+    if u:
+        u.is_active = False
+        session.add(u)
+    session.commit()
+    return RedirectResponse("/district/approvals", status_code=303)

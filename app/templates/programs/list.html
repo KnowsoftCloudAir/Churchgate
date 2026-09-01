@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Programs{% endblock %}
+{% block content %}
+<div class="max-w-3xl mx-auto px-4 py-8">
+  <div class="flex justify-between mb-6">
+    <h1 class="text-2xl font-bold">Special programs</h1>
+    {% if user.role in ['church_admin', 'general_admin'] %}
+    <a href="/programs/create" class="px-4 py-2 rounded-xl bg-teal-500 text-white text-sm">Create program</a>
+    {% endif %}
+  </div>
+  {% for p in programs %}
+  <a href="/programs/{{ p.id }}" class="block bg-white border rounded-2xl p-4 mb-3 hover:border-teal-300">
+    <p class="font-semibold">{{ p.title }}</p>
+    <p class="text-xs text-slate-500">{{ p.program_date or '' }} · Broadcast: {{ p.broadcast_to }}</p>
+  </a>
+  {% else %}
+  <p class="text-slate-400">No programs yet</p>
+  {% endfor %}
+</div>
+{% endblock %}

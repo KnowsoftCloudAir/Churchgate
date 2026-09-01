@@ -6,8 +6,8 @@ import enum
 
 class UserRole(str, enum.Enum):
     general_admin = "general_admin"
-    church_admin = "church_admin"      # Admin of a registered church unit
-    data_officer = "data_officer"      # Can enter weekly stats at district
+    church_admin = "church_admin"
+    data_officer = "data_officer"
     member = "member"
 
 class ChurchLevel(str, enum.Enum):
@@ -21,41 +21,34 @@ class MemberStatus(str, enum.Enum):
     member = "member"
     worker = "worker"
     leader = "leader"
+    pastor = "pastor"
 
-class WorkerType(str, enum.Enum):
-    usher = "usher"
-    choir = "choir"
-    prayer = "prayer"
-    drama = "drama"
-    evangelist = "evangelist"
-    media = "media"
-    protocol = "protocol"
-    other = "other"
+class SexType(str, enum.Enum):
+    brother = "brother"
+    sister = "sister"
 
-class LeaderType(str, enum.Enum):
-    global_pastor = "global_pastor"
-    country_pastor = "country_pastor"
-    state_pastor = "state_pastor"
-    group_pastor = "group_pastor"
-    coordinator = "coordinator"
-    student_leader = "student_leader"
-    campus_leader = "campus_leader"
-    children_leader = "children_leader"
-    women_leader = "women_leader"
-    bible_study_teacher = "bible_study_teacher"
-    representative = "representative"
-    other = "other"
+class AgeCategory(str, enum.Enum):
+    child = "child"           # 1-15
+    youth = "youth"           # 16-20
+    campus = "campus"         # 21-40 young adult/campus
+    adult = "adult"           # 30-100
+
+class Confession(str, enum.Enum):
+    saved = "saved"
+    unsaved = "unsaved"
+    backslidden = "backslidden"
+    restored = "restored"
 
 class ApprovalStatus(str, enum.Enum):
     pending = "pending"
     approved = "approved"
     rejected = "rejected"
+    discontinued = "discontinued"
 
-# ---------- Core hierarchy unit ----------
 class ChurchUnit(SQLModel, table=True):
     __table_args__ = (UniqueConstraint("code", name="uq_church_code"),)
     id: Optional[int] = Field(default=None, primary_key=True)
-    code: str = Field(index=True)                    # Universal code e.g. GLB-001, NG-LAG-GRP1-DST3
+    code: str = Field(index=True)
     name: str
     level: ChurchLevel
     parent_id: Optional[int] = Field(default=None, foreign_key="churchunit.id")
@@ -67,7 +60,7 @@ class ChurchUnit(SQLModel, table=True):
     country_name: Optional[str] = None
     state_name: Optional[str] = None
     doctrine: Optional[str] = Field(default=None, sa_column=Column(Text))
-    activity_days: Optional[str] = None              # e.g. "Sunday,Wednesday,Friday"
+    activity_days: Optional[str] = None
     owner_name: Optional[str] = None
     resident_pastor: Optional[str] = None
     address: Optional[str] = None
@@ -79,54 +72,63 @@ class ChurchUnit(SQLModel, table=True):
 
     members: List["ChurchMember"] = Relationship(back_populates="church")
     stats: List["WeeklyStat"] = Relationship(back_populates="church")
+    programs: List["SpecialProgram"] = Relationship(back_populates="church")
 
 class User(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     email: str = Field(unique=True, index=True)
     hashed_password: str
     full_name: str
-    role: UserRole = Field(default=UserRole.church_admin)
+    role: UserRole = Field(default=UserRole.member)
     church_id: Optional[int] = Field(default=None, foreign_key="churchunit.id")
+    member_id: Optional[int] = Field(default=None, foreign_key="churchmember.id")
+    can_enter_stats: bool = Field(default=False)  # designated for weekly attendance
     is_active: bool = Field(default=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     last_login: Optional[datetime] = None
 
 class ChurchMember(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    church_id: int = Field(foreign_key="churchunit.id")
+    church_id: int = Field(foreign_key="churchunit.id")  # district (or unit) they belong to
+    global_church_id: Optional[int] = None
+    country_church_id: Optional[int] = None
+    state_church_id: Optional[int] = None
+    group_church_id: Optional[int] = None
     full_name: str
-    gender: Optional[str] = None          # male / female
-    phone: Optional[str] = None
-    email: Optional[str] = None
+    sex: Optional[str] = None              # brother / sister
+    age_category: Optional[str] = None     # child, youth, campus, adult
+    confession: Optional[str] = None       # saved, unsaved, backslidden, restored
+    member_since: Optional[date] = None
+    prayer_request: Optional[str] = Field(default=None, sa_column=Column(Text))
     address: Optional[str] = None
-    date_of_birth: Optional[date] = None
-    status: MemberStatus = Field(default=MemberStatus.member)
-    worker_type: Optional[str] = None     # if worker
-    leader_type: Optional[str] = None     # if leader
-    joined_date: Optional[date] = None
+    whatsapp: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = Field(default=None, index=True)
+    profile_pic: Optional[str] = None
+    status: str = Field(default="member")  # member, worker, leader, pastor
+    worker_type: Optional[str] = None
+    leader_type: Optional[str] = None
+    approval_status: str = Field(default="pending")  # pending, approved, rejected, discontinued
+    discontinue_requested: bool = Field(default=False)
     is_active: bool = Field(default=True)
     notes: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
-    church: ChurchUnit = Relationship(back_populates="members")
+    church: Optional[ChurchUnit] = Relationship(back_populates="members")
 
 class WeeklyStat(SQLModel, table=True):
-    """Primary data entered at District level – aggregates upward."""
     id: Optional[int] = Field(default=None, primary_key=True)
     church_id: int = Field(foreign_key="churchunit.id")
-    week_start: date                       # Monday of the week
-    # Attendance
+    week_start: date
     adult_male: int = 0
     adult_female: int = 0
     children_boys: int = 0
     children_girls: int = 0
     youth_male: int = 0
     youth_female: int = 0
-    # Finance
     offering: float = 0.0
     tithe: float = 0.0
     donation: float = 0.0
-    # Growth
     special_program_attendance: int = 0
     newcomers: int = 0
     converts: int = 0
@@ -136,7 +138,51 @@ class WeeklyStat(SQLModel, table=True):
     entered_by: Optional[int] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
-    church: ChurchUnit = Relationship(back_populates="stats")
+    church: Optional[ChurchUnit] = Relationship(back_populates="stats")
+
+class SpecialProgram(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    church_id: int = Field(foreign_key="churchunit.id")  # creating unit
+    title: str
+    description: Optional[str] = Field(default=None, sa_column=Column(Text))
+    program_date: Optional[date] = None
+    location: Optional[str] = None
+    broadcast_to: str = Field(default="district")  # district | group | state | country | global
+    created_by: Optional[int] = None
+    is_active: bool = Field(default=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    church: Optional[ChurchUnit] = Relationship(back_populates="programs")
+    photos: List["ProgramPhoto"] = Relationship(back_populates="program")
+
+class ProgramPhoto(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    program_id: int = Field(foreign_key="specialprogram.id")
+    file_path: str
+    caption: Optional[str] = None
+    uploaded_by: Optional[int] = None  # church admin only
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    program: Optional[SpecialProgram] = Relationship(back_populates="photos")
+    likes: List["PhotoLike"] = Relationship(back_populates="photo")
+    comments: List["PhotoComment"] = Relationship(back_populates="photo")
+
+class PhotoLike(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    photo_id: int = Field(foreign_key="programphoto.id")
+    user_id: int = Field(foreign_key="user.id")
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    photo: Optional[ProgramPhoto] = Relationship(back_populates="likes")
+
+class PhotoComment(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    photo_id: int = Field(foreign_key="programphoto.id")
+    user_id: int = Field(foreign_key="user.id")
+    body: str = Field(sa_column=Column(Text))
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    photo: Optional[ProgramPhoto] = Relationship(back_populates="comments")
 
 class ActivityLog(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
