@@ -83,6 +83,8 @@ class User(SQLModel, table=True):
     church_id: Optional[int] = Field(default=None, foreign_key="churchunit.id")
     member_id: Optional[int] = Field(default=None, foreign_key="churchmember.id")
     can_enter_stats: bool = Field(default=False)  # designated for weekly attendance
+    can_create_churches: bool = Field(default=False)  # GA grants: create child churches
+    can_approve_members: bool = Field(default=False)  # GA grants: approve member registrations
     is_active: bool = Field(default=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     last_login: Optional[datetime] = None

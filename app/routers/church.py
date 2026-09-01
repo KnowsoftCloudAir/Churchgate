@@ -49,6 +49,8 @@ async def create_child_page(
     user: User = Depends(require_roles(UserRole.church_admin, UserRole.general_admin)),
     session: Session = Depends(get_session)
 ):
+    if user.role != UserRole.general_admin and not getattr(user, "can_create_churches", False):
+        raise HTTPException(403, "General Admin has not granted you permission to create churches")
     church = session.get(ChurchUnit, user.church_id) if user.church_id else None
     if not church or church.approval_status != "approved":
         raise HTTPException(403, "Only approved churches can create sub-units")
@@ -81,6 +83,8 @@ async def create_child(
     user: User = Depends(require_roles(UserRole.church_admin, UserRole.general_admin)),
     session: Session = Depends(get_session)
 ):
+    if user.role != UserRole.general_admin and not getattr(user, "can_create_churches", False):
+        raise HTTPException(403, "General Admin has not granted you permission to create churches")
     parent = session.get(ChurchUnit, user.church_id)
     if not parent or parent.approval_status != "approved":
         raise HTTPException(403, "Not allowed")

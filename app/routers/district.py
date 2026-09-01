@@ -237,6 +237,8 @@ async def pending_members(
     user: User = Depends(require_roles(UserRole.church_admin, UserRole.general_admin)),
     session: Session = Depends(get_session)
 ):
+    if user.role != UserRole.general_admin and not getattr(user, "can_approve_members", False):
+        raise HTTPException(403, "General Admin has not granted permission to approve members")
     church = get_user_church(user, session)
     pending = session.exec(
         select(ChurchMember).where(
@@ -271,6 +273,8 @@ async def approve_member(
     user: User = Depends(require_roles(UserRole.church_admin, UserRole.general_admin)),
     session: Session = Depends(get_session)
 ):
+    if user.role != UserRole.general_admin and not getattr(user, "can_approve_members", False):
+        raise HTTPException(403, "Not permitted to approve members")
     member = session.get(ChurchMember, member_id)
     if not member:
         raise HTTPException(404, "Not found")
