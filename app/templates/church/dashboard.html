@@ -1,89 +1,121 @@
 {% extends "base.html" %}
 {% block title %}Dashboard – Churchgate{% endblock %}
 {% block content %}
-<div class="max-w-6xl mx-auto px-4 py-8">
-  {% if church %}
-  <div class="mb-8">
-    <h1 class="text-2xl sm:text-3xl font-bold text-navy-900">{{ church.name }}</h1>
-    <p class="text-sm text-slate-500 mt-1">
-      Code: <code class="bg-slate-100 px-1.5 py-0.5 rounded text-navy-800">{{ church.code }}</code>
-      · Level: <span class="capitalize font-medium">{% if church.level.value is defined %}{{ church.level.value }}{% else %}{{ church.level }}{% endif %}</span>
-      · Pastor: {{ church.resident_pastor or "—" }}
-    </p>
-  </div>
-  {% elif is_admin_overview %}
-  <div class="mb-8">
-    <h1 class="text-2xl font-bold">Platform overview</h1>
-    <p class="text-sm text-slate-500">General Admin · all churches</p>
-  </div>
-  {% else %}
-  <div class="mb-8 p-6 bg-amber-50 border border-amber-100 rounded-2xl">
-    <h1 class="text-xl font-bold text-navy-900">No church linked to this account</h1>
-    <p class="text-sm text-slate-600 mt-2">Sign in with a sample church admin, e.g. <strong>allen@knowsoftchurch.org</strong> / <strong>Church@12345</strong></p>
-  </div>
-  {% endif %}
+<style>
+  .dash-bg { background: linear-gradient(160deg, #0f172a 0%, #1e3a8a 55%, #1e40af 100%); }
+  .stat-card { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12); }
+</style>
+<div class="min-h-[calc(100vh-3.5rem)] dash-bg text-white">
+  <div class="max-w-6xl mx-auto px-4 py-8">
+    {% if church %}
+    <div class="mb-8 flex flex-wrap justify-between gap-4 items-start">
+      <div>
+        <p class="text-blue-200 text-xs font-semibold uppercase tracking-wider mb-1">Church dashboard</p>
+        <h1 class="text-2xl sm:text-3xl font-bold">{{ church.name }}</h1>
+        <p class="text-sm text-blue-200/80 mt-1">
+          <code class="bg-white/10 px-1.5 rounded">{{ church.code }}</code>
+          · {% if church.level.value is defined %}{{ church.level.value }}{% else %}{{ church.level }}{% endif %}
+          · {{ church.resident_pastor or "—" }}
+        </p>
+      </div>
+      <a href="/district/reports/pdf" class="px-4 py-2 rounded-xl bg-amber-400 text-slate-900 text-sm font-bold shadow">Download PDF report</a>
+    </div>
+    {% else %}
+    <h1 class="text-2xl font-bold mb-6">Dashboard</h1>
+    {% endif %}
 
-  <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-    <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
-      <p class="text-xs font-medium text-slate-500 uppercase tracking-wide">Members in scope</p>
-      <p class="text-3xl font-bold text-teal-600 mt-1">{{ members_count }}</p>
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+      <div class="stat-card rounded-2xl p-5">
+        <p class="text-xs text-blue-200 uppercase">Registered members</p>
+        <p class="text-3xl font-bold mt-1">{{ members_count }}</p>
+      </div>
+      <div class="stat-card rounded-2xl p-5">
+        <p class="text-xs text-blue-200 uppercase">Sub-churches</p>
+        <p class="text-3xl font-bold mt-1">{{ children|length }}</p>
+      </div>
+      <div class="stat-card rounded-2xl p-5">
+        <p class="text-xs text-blue-200 uppercase">Latest attendance</p>
+        <p class="text-3xl font-bold mt-1">{{ latest_attendance }}</p>
+      </div>
+      <div class="stat-card rounded-2xl p-5">
+        <p class="text-xs text-blue-200 uppercase">Tithe (period)</p>
+        <p class="text-2xl font-bold mt-1">{{ "%.0f"|format(total_tithe) }}</p>
+      </div>
     </div>
-    <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
-      <p class="text-xs font-medium text-slate-500 uppercase tracking-wide">Sub-units</p>
-      <p class="text-3xl font-bold text-navy-900 mt-1">{{ children|length }}</p>
-    </div>
-    <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
-      <p class="text-xs font-medium text-slate-500 uppercase tracking-wide">Latest attendance</p>
-      <p class="text-3xl font-bold text-navy-900 mt-1">{{ latest_attendance }}</p>
-    </div>
-    <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
-      <p class="text-xs font-medium text-slate-500 uppercase tracking-wide">Tithe (period)</p>
-      <p class="text-2xl font-bold text-navy-900 mt-1">{{ "%.0f"|format(total_tithe) }}</p>
-    </div>
-  </div>
 
-  {% if chart_labels and chart_labels|length > 0 %}
-  <div class="grid lg:grid-cols-2 gap-6 mb-8">
-    <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
-      <h2 class="font-semibold text-navy-900 mb-4">Attendance trend</h2>
-      <div class="h-56"><canvas id="attChart"></canvas></div>
+    <!-- Demographics -->
+    {% if demo %}
+    <div class="grid lg:grid-cols-3 gap-6 mb-8">
+      <div class="stat-card rounded-2xl p-6 lg:col-span-1">
+        <h2 class="font-semibold mb-4">Membership mix</h2>
+        <div class="h-52"><canvas id="pieMembers"></canvas></div>
+      </div>
+      <div class="stat-card rounded-2xl p-6 lg:col-span-2">
+        <h2 class="font-semibold mb-4">By age & sex</h2>
+        <div class="h-52"><canvas id="barDemo"></canvas></div>
+      </div>
     </div>
-    <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
-      <h2 class="font-semibold text-navy-900 mb-4">Finance</h2>
-      <div class="h-56"><canvas id="finChart"></canvas></div>
+    <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-8 text-sm">
+      <div class="stat-card rounded-xl p-4">Men (adult/YA): <strong>{{ demo.men }}</strong></div>
+      <div class="stat-card rounded-xl p-4">Women (adult/YA): <strong>{{ demo.women }}</strong></div>
+      <div class="stat-card rounded-xl p-4">Youth boys: <strong>{{ demo.youth_boys }}</strong></div>
+      <div class="stat-card rounded-xl p-4">Youth girls: <strong>{{ demo.youth_girls }}</strong></div>
+      <div class="stat-card rounded-xl p-4">Young adult men: <strong>{{ demo.ya_boys }}</strong></div>
+      <div class="stat-card rounded-xl p-4">Young adult women: <strong>{{ demo.ya_girls }}</strong></div>
+      <div class="stat-card rounded-xl p-4">Children boys: <strong>{{ demo.children_boys }}</strong></div>
+      <div class="stat-card rounded-xl p-4">Children girls: <strong>{{ demo.children_girls }}</strong></div>
     </div>
-  </div>
-  {% else %}
-  <div class="bg-white rounded-2xl border border-dashed border-slate-200 p-8 text-center text-slate-500 text-sm mb-8">
-    No weekly statistics in scope yet. District data officers enter stats under <strong>Attendance</strong>.
-  </div>
-  {% endif %}
+    <div class="grid sm:grid-cols-2 gap-4 mb-8">
+      <div class="stat-card rounded-2xl p-5">
+        <h3 class="font-semibold text-amber-300 mb-2">Newcomers (from weekly stats)</h3>
+        <p class="text-sm">Men: {{ demo.newcomers_men }} · Women: {{ demo.newcomers_women }} · Children: {{ demo.newcomers_children }}</p>
+      </div>
+      <div class="stat-card rounded-2xl p-5">
+        <h3 class="font-semibold text-amber-300 mb-2">New converts (from weekly stats)</h3>
+        <p class="text-sm">Men: {{ demo.converts_men }} · Women: {{ demo.converts_women }} · Children: {{ demo.converts_children }}</p>
+      </div>
+    </div>
+    {% endif %}
 
-  {% if children %}
-  <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 mb-8">
-    <h2 class="font-semibold text-navy-900 mb-4">Child units</h2>
-    <ul class="divide-y divide-slate-100">
-      {% for ch in children %}
-      <li class="py-3 flex flex-wrap justify-between gap-2 text-sm">
-        <span class="font-medium text-navy-800">{{ ch.name }}</span>
-        <span class="text-slate-500"><code class="text-xs bg-slate-50 px-1 rounded">{{ ch.code }}</code>
-          · {% if ch.level.value is defined %}{{ ch.level.value }}{% else %}{{ ch.level }}{% endif %}
-          · {{ ch.approval_status }}</span>
-      </li>
-      {% endfor %}
-    </ul>
-  </div>
-  {% endif %}
+    {% if chart_labels and chart_labels|length > 0 %}
+    <div class="grid lg:grid-cols-2 gap-6 mb-8">
+      <div class="stat-card rounded-2xl p-6">
+        <h2 class="font-semibold mb-4">Attendance trend</h2>
+        <div class="h-56"><canvas id="attChart"></canvas></div>
+      </div>
+      <div class="stat-card rounded-2xl p-6">
+        <h2 class="font-semibold mb-4">Finance</h2>
+        <div class="h-56"><canvas id="finChart"></canvas></div>
+      </div>
+    </div>
+    {% endif %}
 
-  {% if church %}
-  <div class="flex flex-wrap gap-3">
-    <a href="/district/stats/enter" class="px-4 py-2.5 rounded-xl bg-teal-500 text-white text-sm font-semibold shadow-sm">Enter weekly stats</a>
-    <a href="/district/members" class="px-4 py-2.5 rounded-xl bg-navy-900 text-white text-sm font-semibold">Members</a>
-    <a href="/district/approvals" class="px-4 py-2.5 rounded-xl border border-slate-200 text-sm font-medium bg-white">Approvals</a>
-    <a href="/programs/" class="px-4 py-2.5 rounded-xl border border-slate-200 text-sm font-medium bg-white">Programs</a>
-    <a href="/district/reports/pdf" class="px-4 py-2.5 rounded-xl border border-slate-200 text-sm font-medium bg-white">PDF report</a>
+    {% if children %}
+    <div class="stat-card rounded-2xl p-6 mb-8">
+      <h2 class="font-semibold mb-4">Sub-churches under this unit</h2>
+      <ul class="divide-y divide-white/10">
+        {% for ch in children %}
+        <li class="py-3 flex flex-wrap justify-between gap-2 text-sm">
+          <span class="font-medium">{{ ch.name }}</span>
+          <span class="text-blue-200"><code class="text-xs bg-white/10 px-1 rounded">{{ ch.code }}</code>
+            · {% if ch.level.value is defined %}{{ ch.level.value }}{% else %}{{ ch.level }}{% endif %}
+            · {{ ch.approval_status }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+
+    {% if church %}
+    <div class="flex flex-wrap gap-3">
+      <a href="/district/stats/enter" class="px-4 py-2.5 rounded-xl bg-amber-400 text-slate-900 text-sm font-bold">Weekly attendance</a>
+      <a href="/district/members" class="px-4 py-2.5 rounded-xl bg-white text-royal-900 text-sm font-semibold">Members</a>
+      <a href="/district/approvals" class="px-4 py-2.5 rounded-xl border border-white/30 text-sm">Approvals & privileges</a>
+      <a href="/programs/" class="px-4 py-2.5 rounded-xl border border-white/30 text-sm">Programs</a>
+      <a href="/church/create-child" class="px-4 py-2.5 rounded-xl border border-white/30 text-sm">Create sub-church</a>
+    </div>
+    {% endif %}
   </div>
-  {% endif %}
 </div>
 {% endblock %}
 {% block scripts %}
@@ -93,11 +125,36 @@ const att = {{ chart_attendance|tojson }};
 const off = {{ chart_offering|tojson }};
 const tithe = {{ chart_tithe|tojson }};
 const don = {{ chart_donation|tojson }};
+const demo = {{ demo|tojson if demo else '{}' }};
+
+if (demo && demo.men !== undefined && document.getElementById('pieMembers')) {
+  new Chart(document.getElementById('pieMembers'), {
+    type: 'pie',
+    data: {
+      labels: ['Men', 'Women', 'Youth boys', 'Youth girls', 'YA men', 'YA women', 'Boys', 'Girls'],
+      datasets: [{
+        data: [demo.men, demo.women, demo.youth_boys, demo.youth_girls, demo.ya_boys, demo.ya_girls, demo.children_boys, demo.children_girls],
+        backgroundColor: ['#3b82f6','#ec4899','#60a5fa','#f9a8d4','#1d4ed8','#db2777','#93c5fd','#fbcfe8']
+      }]
+    },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#e2e8f0', boxWidth: 12 } } } }
+  });
+}
+if (demo && document.getElementById('barDemo')) {
+  new Chart(document.getElementById('barDemo'), {
+    type: 'bar',
+    data: {
+      labels: ['Men', 'Women', 'Youth ♂', 'Youth ♀', 'YA ♂', 'YA ♀', 'Child ♂', 'Child ♀'],
+      datasets: [{ label: 'Count', data: [demo.men, demo.women, demo.youth_boys, demo.youth_girls, demo.ya_boys, demo.ya_girls, demo.children_boys, demo.children_girls], backgroundColor: '#fbbf24', borderRadius: 6 }]
+    },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: '#cbd5e1' } }, y: { ticks: { color: '#cbd5e1' }, grid: { color: 'rgba(255,255,255,0.08)' } } } }
+  });
+}
 if (labels && labels.length && document.getElementById('attChart')) {
   new Chart(document.getElementById('attChart'), {
     type: 'bar',
-    data: { labels, datasets: [{ label: 'Attendance', data: att, backgroundColor: '#14b8a6', borderRadius: 6 }] },
-    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+    data: { labels, datasets: [{ label: 'Attendance', data: att, backgroundColor: '#60a5fa', borderRadius: 6 }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: '#cbd5e1' } }, y: { ticks: { color: '#cbd5e1' }, grid: { color: 'rgba(255,255,255,0.08)' } } } }
   });
 }
 if (labels && labels.length && document.getElementById('finChart')) {
@@ -106,12 +163,12 @@ if (labels && labels.length && document.getElementById('finChart')) {
     data: {
       labels,
       datasets: [
-        { label: 'Offering', data: off, borderColor: '#14b8a6', tension: 0.3, fill: false },
-        { label: 'Tithe', data: tithe, borderColor: '#0f2744', tension: 0.3, fill: false },
-        { label: 'Donation', data: don, borderColor: '#d4a017', tension: 0.3, fill: false }
+        { label: 'Offering', data: off, borderColor: '#93c5fd', tension: 0.3 },
+        { label: 'Tithe', data: tithe, borderColor: '#fbbf24', tension: 0.3 },
+        { label: 'Donation', data: don, borderColor: '#34d399', tension: 0.3 }
       ]
     },
-    options: { responsive: true, maintainAspectRatio: false }
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#e2e8f0' } } }, scales: { x: { ticks: { color: '#cbd5e1' } }, y: { ticks: { color: '#cbd5e1' }, grid: { color: 'rgba(255,255,255,0.08)' } } } }
   });
 }
 </script>

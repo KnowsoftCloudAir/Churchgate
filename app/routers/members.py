@@ -202,3 +202,20 @@ async def request_discontinue(
         session.add(member)
         session.commit()
     return RedirectResponse("/member/portal", status_code=303)
+
+
+@router.get("/api/churches-by-level")
+async def churches_by_level(level: str = "global", session: Session = Depends(get_session)):
+    try:
+        lv = ChurchLevel(level if level != "global" else "global")
+    except ValueError:
+        lv = ChurchLevel.global_church
+    if level == "global":
+        lv = ChurchLevel.global_church
+    rows = session.exec(
+        select(ChurchUnit).where(
+            ChurchUnit.level == lv,
+            ChurchUnit.approval_status == "approved"
+        ).order_by(ChurchUnit.name)
+    ).all()
+    return [{"id": c.id, "name": c.name, "code": c.code, "level": getattr(c.level, "value", str(c.level))} for c in rows]

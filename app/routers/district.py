@@ -278,6 +278,7 @@ async def approve_member(
     worker_type: str = Form(""),
     leader_type: str = Form(""),
     can_enter_stats: str = Form(""),
+    custom_title: str = Form(""),
     user: User = Depends(require_roles(UserRole.church_admin, UserRole.general_admin)),
     session: Session = Depends(get_session)
 ):
@@ -293,6 +294,7 @@ async def approve_member(
     member.status = status
     member.worker_type = worker_type or None
     member.leader_type = leader_type or None
+    member.custom_title = custom_title.strip() or None
     session.add(member)
     # link user
     u = session.exec(select(User).where(User.email == member.email)).first()

@@ -49,6 +49,7 @@ async def dashboard(
     total_tithe = 0.0
     latest_attendance = 0
     scope_ids = []
+    demo = {}
 
     if user.role == UserRole.general_admin and not church:
         # Show global sample overview
@@ -60,7 +61,7 @@ async def dashboard(
             "chart_labels": [], "chart_attendance": [], "chart_offering": [],
             "chart_tithe": [], "chart_donation": [],
             "total_offering": 0, "total_tithe": 0, "latest_attendance": 0,
-            "is_admin_overview": True,
+            "is_admin_overview": True, "demo": {},
         })
 
     if church:
@@ -68,9 +69,43 @@ async def dashboard(
         scope_ids = collect_descendant_ids(session, church.id)
 
         # Members in this unit + all descendants (so Global/Country see district members)
-        members_count = len(session.exec(
-            select(ChurchMember).where(ChurchMember.church_id.in_(scope_ids))
-        ).all())
+        members_list = session.exec(
+            select(ChurchMember).where(
+                ChurchMember.church_id.in_(scope_ids),
+                ChurchMember.approval_status == "approved"
+            )
+        ).all()
+        members_count = len(members_list)
+
+        def count_sex_age(sex, ages):
+            return sum(1 for m in members_list if (m.sex or "").lower() in sex and (m.age_category or "") in ages)
+
+        demo = {
+            "men": count_sex_age(["brother", "male"], ["adult", "campus"]),
+            "women": count_sex_age(["sister", "female"], ["adult", "campus"]),
+            "youth_boys": count_sex_age(["brother", "male"], ["youth"]),
+            "youth_girls": count_sex_age(["sister", "female"], ["youth"]),
+            "ya_boys": count_sex_age(["brother", "male"], ["campus"]),
+            "ya_girls": count_sex_age(["sister", "female"], ["campus"]),
+            "children_boys": count_sex_age(["brother", "male"], ["child"]),
+            "children_girls": count_sex_age(["sister", "female"], ["child"]),
+        }
+        # Newcomers / converts from stats (sum period)
+        new_m = new_w = new_cb = new_cg = conv_m = conv_w = conv_c = 0
+        # We only have aggregate newcomers/converts on WeeklyStat – split approx 50/50 for display
+        for s in session.exec(select(WeeklyStat).where(WeeklyStat.church_id.in_(scope_ids))).all():
+            n, c = s.newcomers, s.converts
+            new_m += n // 2
+            new_w += n - n // 2
+            conv_m += c // 2
+            conv_w += c - c // 2
+        demo["newcomers_men"] = new_m
+        demo["newcomers_women"] = new_w
+        demo["newcomers_children"] = 0
+        demo["converts_men"] = conv_m
+        demo["converts_women"] = conv_w
+        demo["converts_children"] = 0
+
 
         # Stats: prefer this unit; if empty (higher levels), aggregate from descendants
         own_stats = session.exec(
@@ -145,6 +180,7 @@ async def dashboard(
         "total_tithe": total_tithe,
         "latest_attendance": latest_attendance,
         "is_admin_overview": False,
+        "demo": demo if church else {},
     })
 
 @router.get("/church/create-child", response_class=HTMLResponse)

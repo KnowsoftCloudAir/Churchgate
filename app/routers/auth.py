@@ -89,12 +89,11 @@ async def register_church_page(request: Request):
 async def register_church(
     request: Request,
     name: str = Form(...),
-    level: str = Form(...),  # global | country | state | group | district
-    global_code: str = Form(""),
-    country_code: str = Form(""),
-    state_code: str = Form(""),
-    group_code: str = Form(""),
-    district_code: str = Form(""),
+    level: str = Form(...),
+    parent_global_id: str = Form(""),
+    parent_country_id: str = Form(""),
+    parent_state_id: str = Form(""),
+    parent_group_id: str = Form(""),
     country_name: str = Form(""),
     state_name: str = Form(""),
     doctrine: str = Form(""),
@@ -108,7 +107,6 @@ async def register_church(
     admin_password: str = Form(...),
     session: Session = Depends(get_session)
 ):
-    # Validate level
     try:
         church_level = ChurchLevel(level)
     except ValueError:
@@ -116,33 +114,72 @@ async def register_church(
             "request": request, "error": "Invalid church level"
         }, status_code=400)
 
-    # For non-global, parent codes are required
-    if church_level != ChurchLevel.global_church:
-        if not global_code.strip():
-            return templates.TemplateResponse("auth/register_church.html", {
-                "request": request, "error": "Global Church Code is required for non-global churches."
-            }, status_code=400)
+    parent_id = None
+    global_code = country_code = state_code = group_code = district_code = None
 
-    # Generate unique code
+    def get_unit(raw_id):
+        if not raw_id or not str(raw_id).strip().isdigit():
+            return None
+        return session.get(ChurchUnit, int(raw_id))
+
+    if church_level == ChurchLevel.global_church:
+        parent_id = None
+    elif church_level == ChurchLevel.country:
+        g = get_unit(parent_global_id)
+        if not g or g.approval_status != "approved":
+            return templates.TemplateResponse("auth/register_church.html", {
+                "request": request, "error": "Select an approved Global parent church"
+            }, status_code=400)
+        parent_id = g.id
+        global_code = g.global_code or g.code
+    elif church_level == ChurchLevel.state:
+        g, c = get_unit(parent_global_id), get_unit(parent_country_id)
+        if not g or not c or c.parent_id != g.id:
+            return templates.TemplateResponse("auth/register_church.html", {
+                "request": request, "error": "Select valid Global and Country parents"
+            }, status_code=400)
+        parent_id = c.id
+        global_code = g.global_code or g.code
+        country_code = c.country_code or c.code
+    elif church_level == ChurchLevel.group:
+        g, c, s = get_unit(parent_global_id), get_unit(parent_country_id), get_unit(parent_state_id)
+        if not all([g, c, s]) or s.parent_id != c.id:
+            return templates.TemplateResponse("auth/register_church.html", {
+                "request": request, "error": "Select valid Global, Country and State parents"
+            }, status_code=400)
+        parent_id = s.id
+        global_code = g.global_code or g.code
+        country_code = c.country_code or c.code
+        state_code = s.state_code or s.code
+    elif church_level == ChurchLevel.district:
+        g = get_unit(parent_global_id)
+        c = get_unit(parent_country_id)
+        s = get_unit(parent_state_id)
+        gr = get_unit(parent_group_id)
+        if not all([g, c, s, gr]) or gr.parent_id != s.id:
+            return templates.TemplateResponse("auth/register_church.html", {
+                "request": request, "error": "Select valid Global, Country, State and Group parents"
+            }, status_code=400)
+        parent_id = gr.id
+        global_code = g.global_code or g.code
+        country_code = c.country_code or c.code
+        state_code = s.state_code or s.code
+        group_code = gr.group_code or gr.code
+
     code = generate_code("CG")
     while session.exec(select(ChurchUnit).where(ChurchUnit.code == code)).first():
         code = generate_code("CG")
 
-    # Resolve parent if possible
-    parent_id = None
-    if church_level != ChurchLevel.global_church and global_code.strip():
-        parent = session.exec(
-            select(ChurchUnit).where(
-                ChurchUnit.code == global_code.strip(),
-                ChurchUnit.level == ChurchLevel.global_church,
-                ChurchUnit.approval_status == "approved"
-            )
-        ).first()
-        # Parent may also be country/state/group depending on level
-        if not parent and country_code:
-            parent = session.exec(select(ChurchUnit).where(ChurchUnit.code == country_code.strip())).first()
-        if parent:
-            parent_id = parent.id
+    if church_level == ChurchLevel.global_church:
+        global_code = code
+    elif church_level == ChurchLevel.country:
+        country_code = code
+    elif church_level == ChurchLevel.state:
+        state_code = code
+    elif church_level == ChurchLevel.group:
+        group_code = code
+    elif church_level == ChurchLevel.district:
+        district_code = code
 
     existing_user = session.exec(select(User).where(User.email == email)).first()
     if existing_user:
@@ -155,11 +192,11 @@ async def register_church(
         name=name.strip(),
         level=church_level,
         parent_id=parent_id,
-        global_code=global_code.strip() or (code if church_level == ChurchLevel.global_church else None),
-        country_code=country_code.strip() or None,
-        state_code=state_code.strip() or None,
-        group_code=group_code.strip() or None,
-        district_code=district_code.strip() or None,
+        global_code=global_code,
+        country_code=country_code,
+        state_code=state_code,
+        group_code=group_code,
+        district_code=district_code,
         country_name=country_name.strip() or None,
         state_name=state_name.strip() or None,
         doctrine=doctrine.strip() or None,
@@ -169,20 +206,21 @@ async def register_church(
         address=address.strip() or None,
         phone=phone.strip() or None,
         email=email.strip(),
-        approval_status="pending"
+        approval_status="pending",
     )
     session.add(church)
     session.commit()
     session.refresh(church)
 
-    # Create pending church admin user (cannot login until approved)
     admin = User(
         email=email.strip(),
         hashed_password=get_password_hash(admin_password),
         full_name=admin_full_name.strip(),
         role=UserRole.church_admin,
         church_id=church.id,
-        is_active=True
+        is_active=True,
+        can_create_churches=False,
+        can_approve_members=False,
     )
     session.add(admin)
     session.commit()

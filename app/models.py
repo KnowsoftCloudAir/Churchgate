@@ -110,6 +110,7 @@ class ChurchMember(SQLModel, table=True):
     status: str = Field(default="member")  # member, worker, leader, pastor
     worker_type: Optional[str] = None
     leader_type: Optional[str] = None
+    custom_title: Optional[str] = None  # editable title from sub-admin
     approval_status: str = Field(default="pending")  # pending, approved, rejected, discontinued
     discontinue_requested: bool = Field(default=False)
     is_active: bool = Field(default=True)
