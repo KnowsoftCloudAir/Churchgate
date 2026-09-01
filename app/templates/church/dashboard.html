@@ -5,7 +5,7 @@
   <div class="mb-8">
     <h1 class="text-2xl font-bold">{{ church.name if church else "Welcome" }}</h1>
     {% if church %}
-    <p class="text-sm text-slate-500">Code: <code class="bg-slate-100 px-1.5 rounded">{{ church.code }}</code> · Level: <span class="capitalize font-medium">{{ church.level.value }}</span> · Pastor: {{ church.resident_pastor or "—" }}</p>
+    <p class="text-sm text-slate-500">Code: <code class="bg-slate-100 px-1.5 rounded">{{ church.code }}</code> · Level: <span class="capitalize font-medium">{% if church.level.value is defined %}{{ church.level.value }}{% else %}{{ church.level }}{% endif %}</span> · Pastor: {{ church.resident_pastor or "—" }}</p>
     {% endif %}
   </div>
 
@@ -24,7 +24,7 @@
     </div>
     <div class="bg-white rounded-2xl border p-5 shadow-sm">
       <p class="text-xs text-slate-500 uppercase">Your role</p>
-      <p class="text-lg font-bold capitalize">{{ user.role.value.replace('_',' ') }}</p>
+      <p class="text-lg font-bold capitalize">{% if user.role.value is defined %}{{ user.role.value.replace('_', ' ') }}{% else %}{{ user.role }}{% endif %}</p>
     </div>
   </div>
 
@@ -46,7 +46,7 @@
       {% for ch in children %}
       <li class="py-3 flex justify-between text-sm">
         <span class="font-medium">{{ ch.name }}</span>
-        <span class="text-slate-500"><code>{{ ch.code }}</code> · {{ ch.level.value }}</span>
+        <span class="text-slate-500"><code>{{ ch.code }}</code> · {% if ch.level.value is defined %}{{ ch.level.value }}{% else %}{{ ch.level }}{% endif %}</span>
       </li>
       {% endfor %}
     </ul>
@@ -69,14 +69,14 @@ const off = [{% for s in stats %}{{ s.offering }}{% if not loop.last %},{% endif
 const tithe = [{% for s in stats %}{{ s.tithe }}{% if not loop.last %},{% endif %}{% endfor %}].reverse();
 const don = [{% for s in stats %}{{ s.donation }}{% if not loop.last %},{% endif %}{% endfor %}].reverse();
 
-if (document.getElementById('attChart')) {
+if (document.getElementById('attChart') && labels.length) {
   new Chart(document.getElementById('attChart'), {
     type: 'bar',
     data: { labels, datasets: [{ label: 'Total attendance', data: att, backgroundColor: '#14b8a6' }] },
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
   });
 }
-if (document.getElementById('finChart')) {
+if (document.getElementById('finChart') && labels.length) {
   new Chart(document.getElementById('finChart'), {
     type: 'line',
     data: {

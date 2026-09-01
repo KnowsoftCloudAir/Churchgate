@@ -15,7 +15,7 @@
         {% for m in members %}
         <tr class="border-t">
           <td class="p-3 font-medium">{{ m.full_name }}</td>
-          <td class="p-3 capitalize">{{ m.status.value }}</td>
+          <td class="p-3 capitalize">{{ m.status }}</td>
           <td class="p-3 text-slate-500">{{ m.worker_type or m.leader_type or "—" }}</td>
           <td class="p-3 text-slate-500">{{ m.phone or m.email or "—" }}</td>
         </tr>
