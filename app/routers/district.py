@@ -173,70 +173,93 @@ async def generate_pdf_report(
     user: User = Depends(require_user),
     session: Session = Depends(get_session)
 ):
-    """Generate a simple PDF summary report."""
+    """Downloadable PDF – safe for string/enum fields and rolled-up members."""
     try:
         from reportlab.lib.pagesizes import A4
         from reportlab.pdfgen import canvas
         from reportlab.lib.units import mm
     except ImportError:
-        raise HTTPException(500, "PDF library not available")
+        raise HTTPException(500, "PDF library not available. Install reportlab.")
 
     church = get_user_church(user, session)
-    members = session.exec(select(ChurchMember).where(ChurchMember.church_id == church.id)).all()
-    stats = session.exec(
-        select(WeeklyStat).where(WeeklyStat.church_id == church.id).order_by(WeeklyStat.week_start.desc()).limit(12)
+    # Scope: this unit + descendants
+    ids = [church.id]
+    queue = [church.id]
+    while queue:
+        pid = queue.pop(0)
+        for k in session.exec(select(ChurchUnit).where(ChurchUnit.parent_id == pid)).all():
+            ids.append(k.id)
+            queue.append(k.id)
+
+    members = session.exec(
+        select(ChurchMember).where(ChurchMember.church_id.in_(ids)).order_by(ChurchMember.full_name)
     ).all()
+    stats = session.exec(
+        select(WeeklyStat).where(WeeklyStat.church_id.in_(ids)).order_by(WeeklyStat.week_start.desc()).limit(24)
+    ).all()
+
+    def s(val):
+        if val is None:
+            return ""
+        return str(getattr(val, "value", val))
 
     buffer = BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
     width, height = A4
-    y = height - 30 * mm
+    y = height - 25 * mm
+
+    def newline(h=6):
+        nonlocal y
+        y -= h * mm
+        if y < 20 * mm:
+            c.showPage()
+            y = height - 20 * mm
 
     c.setFont("Helvetica-Bold", 16)
     c.drawString(20 * mm, y, "Knowsoft Churchgate Report")
-    y -= 10 * mm
-    c.setFont("Helvetica", 11)
-    c.drawString(20 * mm, y, f"Church: {church.name} ({church.code}) · Level: {church.level.value}")
-    y -= 6 * mm
-    c.drawString(20 * mm, y, f"Period view: {period} · Generated: {datetime.utcnow().strftime('%Y-%m-%d %H:%M')} UTC")
-    y -= 12 * mm
-
-    c.setFont("Helvetica-Bold", 12)
-    c.drawString(20 * mm, y, "Members / Workers / Leaders")
-    y -= 7 * mm
+    newline(8)
     c.setFont("Helvetica", 10)
-    for m in members[:40]:
-        line = f"{m.full_name} · {m.status.value}"
+    c.drawString(20 * mm, y, f"Church: {church.name} ({church.code})")
+    newline(5)
+    c.drawString(20 * mm, y, f"Level: {s(church.level)}  |  Period: {period}  |  Generated: {datetime.utcnow().strftime('%Y-%m-%d %H:%M')} UTC")
+    newline(8)
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(20 * mm, y, f"Members ({len(members)})")
+    newline(6)
+    c.setFont("Helvetica", 9)
+    for m in members[:80]:
+        line = f"{m.full_name} | {s(m.status)}"
         if m.worker_type:
             line += f" ({m.worker_type})"
         if m.leader_type:
             line += f" [{m.leader_type}]"
-        c.drawString(22 * mm, y, line[:90])
-        y -= 5 * mm
-        if y < 25 * mm:
-            c.showPage()
-            y = height - 20 * mm
+        if getattr(m, "custom_title", None):
+            line += f" – {m.custom_title}"
+        line += f" | {s(m.approval_status)}"
+        c.drawString(22 * mm, y, line[:95])
+        newline(5)
 
-    y -= 5 * mm
+    newline(4)
     c.setFont("Helvetica-Bold", 12)
-    c.drawString(20 * mm, y, "Recent Weekly Statistics")
-    y -= 7 * mm
+    c.drawString(20 * mm, y, "Weekly statistics")
+    newline(6)
     c.setFont("Helvetica", 9)
-    for s in stats:
-        total_att = s.adult_male + s.adult_female + s.children_boys + s.children_girls + s.youth_male + s.youth_female
-        line = f"Week {s.week_start}: Att {total_att} | Off {s.offering:.0f} Tithe {s.tithe:.0f} | New {s.newcomers} Conv {s.converts}"
-        c.drawString(22 * mm, y, line)
-        y -= 5 * mm
-        if y < 25 * mm:
-            c.showPage()
-            y = height - 20 * mm
+    for st in stats:
+        total_att = (st.adult_male + st.adult_female + st.children_boys +
+                     st.children_girls + st.youth_male + st.youth_female)
+        line = (f"Week {st.week_start}: Att {total_att} | Off {st.offering:.0f} | "
+                f"Tithe {st.tithe:.0f} | New {st.newcomers} | Conv {st.converts}")
+        c.drawString(22 * mm, y, line[:100])
+        newline(5)
 
     c.save()
     buffer.seek(0)
-    filename = f"churchgate_{church.code}_{period}.pdf"
-    return StreamingResponse(buffer, media_type="application/pdf", headers={
-        "Content-Disposition": f'attachment; filename="{filename}"'
-    })
+    filename = f"churchgate_{church.code}_{period}.pdf".replace(" ", "_")
+    return StreamingResponse(
+        buffer,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
 
 
 @router.get("/approvals", response_class=HTMLResponse)
@@ -340,3 +363,47 @@ async def confirm_discontinue(
         session.add(u)
     session.commit()
     return RedirectResponse("/district/approvals", status_code=303)
+
+
+@router.post("/members/{member_id}/status")
+async def edit_member_status(
+    member_id: int,
+    status: str = Form("member"),
+    worker_type: str = Form(""),
+    leader_type: str = Form(""),
+    custom_title: str = Form(""),
+    can_enter_stats: str = Form(""),
+    user: User = Depends(require_roles(UserRole.church_admin, UserRole.general_admin)),
+    session: Session = Depends(get_session)
+):
+    """Church admin edits status of an already-approved member."""
+    if user.role != UserRole.general_admin and not getattr(user, "can_approve_members", False):
+        raise HTTPException(403, "Not permitted to edit member status")
+    member = session.get(ChurchMember, member_id)
+    if not member:
+        raise HTTPException(404, "Member not found")
+    church = get_user_church(user, session)
+    # allow if member in this unit or descendant
+    ids = [church.id]
+    queue = [church.id]
+    while queue:
+        pid = queue.pop(0)
+        for k in session.exec(select(ChurchUnit).where(ChurchUnit.parent_id == pid)).all():
+            ids.append(k.id)
+            queue.append(k.id)
+    if user.role != UserRole.general_admin and member.church_id not in ids:
+        raise HTTPException(403, "Member not in your church tree")
+    member.status = status
+    member.worker_type = worker_type or None
+    member.leader_type = leader_type or None
+    member.custom_title = custom_title.strip() or None
+    session.add(member)
+    u = session.exec(select(User).where(User.email == member.email)).first()
+    if u:
+        if can_enter_stats == "yes":
+            u.can_enter_stats = True
+        elif can_enter_stats == "no":
+            u.can_enter_stats = False
+        session.add(u)
+    session.commit()
+    return RedirectResponse("/district/members", status_code=303)

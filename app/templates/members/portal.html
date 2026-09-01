@@ -1,17 +1,20 @@
 {% extends "base.html" %}
 {% block title %}My Membership{% endblock %}
 {% block content %}
-<div class="max-w-lg mx-auto px-4 py-8">
-  <h1 class="text-2xl font-bold mb-4">My membership</h1>
+<div class="max-w-2xl mx-auto px-4 py-8">
+  <h1 class="text-2xl font-bold text-navy-900 mb-4">My membership</h1>
   {% if member %}
-  <div class="bg-white rounded-2xl border p-6 mb-4">
-    <p class="text-sm text-slate-500">Status: <span class="font-semibold capitalize">{{ member.approval_status }}</span>
-      · Role: <span class="capitalize">{{ member.status }}</span></p>
-    {% if member.discontinue_requested %}<p class="text-amber-600 text-sm mt-2">Discontinue request pending admin review.</p>{% endif %}
-    {% if member.profile_pic %}<img src="{{ member.profile_pic }}" class="w-20 h-20 rounded-full object-cover mt-3">{% endif %}
+  <div class="bg-white rounded-2xl border border-slate-200 p-6 mb-4 shadow-sm">
+    <p class="text-sm text-slate-600">Status: <span class="font-semibold capitalize text-navy-900">{{ member.approval_status }}</span>
+      · Role: <span class="capitalize font-semibold">{{ member.status }}</span>
+      {% if member.custom_title %}· {{ member.custom_title }}{% endif %}
+    </p>
+    {% if member.discontinue_requested %}<p class="text-amber-600 text-sm mt-2">Discontinue request pending review.</p>{% endif %}
+    {% if member.profile_pic %}<img src="{{ member.profile_pic }}" class="w-20 h-20 rounded-full object-cover mt-3" alt="">{% endif %}
   </div>
   {% if member.approval_status == 'approved' %}
-  <form method="post" action="/member/update-profile" class="bg-white rounded-2xl border p-6 space-y-3">
+  <form method="post" action="/member/update-profile" class="bg-white rounded-2xl border p-6 space-y-3 mb-4 shadow-sm">
+    <h2 class="font-semibold text-navy-900">Update profile</h2>
     <input name="full_name" value="{{ member.full_name }}" class="w-full px-3 py-2 rounded-xl border">
     <input name="whatsapp" value="{{ member.whatsapp or '' }}" placeholder="WhatsApp" class="w-full px-3 py-2 rounded-xl border">
     <input name="phone" value="{{ member.phone or '' }}" placeholder="Phone" class="w-full px-3 py-2 rounded-xl border">
@@ -23,15 +26,34 @@
       <option value="restored" {% if member.confession=='restored' %}selected{% endif %}>Restored</option>
     </select>
     <textarea name="prayer_request" rows="2" class="w-full px-3 py-2 rounded-xl border" placeholder="Prayer request">{{ member.prayer_request or '' }}</textarea>
-    <button class="w-full py-2.5 rounded-xl bg-teal-500 text-white font-medium">Update profile</button>
+    <div class="border-t pt-3">
+      <label class="text-sm font-medium text-slate-700">Request role / status update</label>
+      <p class="text-xs text-slate-500 mb-2">Your district or group admin must confirm changes to official status.</p>
+      <select name="requested_status" class="w-full px-3 py-2 rounded-xl border mb-2">
+        <option value="">Keep current ({{ member.status }})</option>
+        <option value="member">Member</option>
+        <option value="worker">Worker</option>
+        <option value="leader">Leader</option>
+        <option value="pastor">Pastor</option>
+      </select>
+      <input name="requested_title" placeholder="Preferred title (e.g. Choir leader)" class="w-full px-3 py-2 rounded-xl border">
+    </div>
+    <button class="w-full py-2.5 rounded-xl bg-blue-700 text-white font-semibold">Save updates</button>
   </form>
+  <div class="bg-white rounded-2xl border p-6 mb-4 shadow-sm">
+    <div class="flex justify-between items-center mb-3">
+      <h2 class="font-semibold">Programs & photos</h2>
+      <a href="/programs/" class="text-sm text-blue-700 font-medium">Open all →</a>
+    </div>
+    <p class="text-sm text-slate-600">View special programs, like and comment on photos shared by your church. Only members can download pictures.</p>
+  </div>
   {% if not member.discontinue_requested %}
-  <form method="post" action="/member/request-discontinue" class="mt-4" onsubmit="return confirm('Request to discontinue membership?')">
+  <form method="post" action="/member/request-discontinue" onsubmit="return confirm('Request to discontinue membership?')">
     <button class="w-full py-2.5 rounded-xl border border-red-200 text-red-600 text-sm">Request discontinue membership</button>
   </form>
   {% endif %}
   {% else %}
-  <p class="text-slate-500 text-sm">Waiting for district admin approval.</p>
+  <p class="text-slate-500 text-sm">Waiting for district or group admin approval.</p>
   {% endif %}
   {% else %}
   <p class="text-slate-500">No member profile linked.</p>

@@ -166,6 +166,8 @@ async def update_profile(
     address: str = Form(""),
     prayer_request: str = Form(""),
     confession: str = Form(""),
+    requested_status: str = Form(""),
+    requested_title: str = Form(""),
     user: User = Depends(require_user),
     session: Session = Depends(get_session)
 ):
@@ -183,6 +185,16 @@ async def update_profile(
     member.prayer_request = prayer_request or None
     if confession:
         member.confession = confession
+    # Member may propose status; admin confirms via Approvals / members list
+    if requested_status or requested_title:
+        note = f"[Status request: {requested_status or member.status}"
+        if requested_title:
+            note += f" / title: {requested_title}"
+        note += "]"
+        member.notes = ((member.notes or "") + " " + note).strip()
+        # Soft-update display title only if they already have a role; full status stays until admin edits
+        if requested_title:
+            member.custom_title = requested_title.strip()
     user.full_name = full_name.strip()
     session.add(member)
     session.add(user)

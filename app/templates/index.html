@@ -46,7 +46,7 @@
     }
   </style>
 </head>
-<body class="font-sans antialiased text-white bg-ink-900">
+<body class="font-sans antialiased text-white bg-ink-900 overflow-x-hidden">
   <!-- Nav -->
   <header class="fixed top-0 inset-x-0 z-50">
     <div class="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
@@ -65,12 +65,12 @@
   <!-- Hero -->
   <section class="hero-mesh relative min-h-screen flex items-center pt-16 overflow-hidden">
     <div class="absolute inset-0 opacity-40 pointer-events-none">
-      <img src="/static/img/church-hero.svg" alt="" class="w-full h-full object-cover object-center church-stage scale-110">
+      <img src="/static/img/church-hero.svg" alt="" class="w-full h-full object-cover object-center church-stage max-w-none w-full h-full object-cover">
     </div>
     <div class="absolute inset-0 bg-gradient-to-r from-ink-900 via-ink-900/85 to-ink-900/40"></div>
     <div class="absolute bottom-0 inset-x-0 h-40 bg-gradient-to-t from-ink-900 to-transparent"></div>
 
-    <div class="relative max-w-6xl mx-auto px-4 sm:px-6 py-20 w-full grid lg:grid-cols-2 gap-12 items-center">
+    <div class="relative max-w-6xl mx-auto px-4 sm:px-6 py-16 sm:py-20 w-full grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12 items-center">
       <div>
         <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full glass-card text-xs font-medium text-sanctum-400 mb-6">
           <span class="w-1.5 h-1.5 rounded-full bg-sanctum-400 animate-pulse"></span>
@@ -84,7 +84,7 @@
           Churchgate connects Global, Country, State, Group and District churches—
           members, workers, attendance, offerings and programs—in one secure house.
         </p>
-        <div class="flex flex-wrap gap-3">
+        <div class="flex flex-col sm:flex-row flex-wrap gap-3">
           <a href="/join" class="px-7 py-3.5 rounded-xl bg-sanctum-500 text-ink-900 font-bold shadow-lift hover:bg-sanctum-400 transition">
             Register as Member
           </a>

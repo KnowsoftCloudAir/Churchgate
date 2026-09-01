@@ -108,12 +108,14 @@
 
     {% if church %}
     <div class="flex flex-wrap gap-3">
-      <a href="/district/stats/enter" class="px-4 py-2.5 rounded-xl bg-amber-400 text-slate-900 text-sm font-bold">Weekly attendance</a>
-      <a href="/district/members" class="px-4 py-2.5 rounded-xl bg-white text-royal-900 text-sm font-semibold">Members</a>
-      <a href="/district/approvals" class="px-4 py-2.5 rounded-xl border border-white/30 text-sm">Approvals & privileges</a>
-      <a href="/programs/" class="px-4 py-2.5 rounded-xl border border-white/30 text-sm">Programs</a>
-      <a href="/church/create-child" class="px-4 py-2.5 rounded-xl border border-white/30 text-sm">Create sub-church</a>
+      <a href="/district/stats/enter" class="px-5 py-3 rounded-xl bg-amber-400 text-slate-900 text-sm font-bold shadow-lg">Weekly attendance</a>
+      <a href="/district/members" class="px-5 py-3 rounded-xl bg-white text-blue-900 text-sm font-bold shadow-lg border-2 border-amber-300">View members list</a>
+      <a href="/district/approvals" class="px-5 py-3 rounded-xl bg-blue-500 text-white text-sm font-semibold shadow">Approvals & privileges</a>
+      <a href="/programs/" class="px-5 py-3 rounded-xl bg-indigo-500 text-white text-sm font-semibold shadow">Programs & photos</a>
+      <a href="/church/create-child" class="px-5 py-3 rounded-xl bg-slate-800 text-white text-sm font-semibold border border-white/40">Create sub-church</a>
+      <a href="/district/reports/pdf" class="px-5 py-3 rounded-xl bg-emerald-500 text-white text-sm font-bold shadow">Download PDF report</a>
     </div>
+    <p class="mt-4 text-sm text-blue-100 max-w-2xl">Members, workers and leaders under this unit and its sub-churches. Use <strong class="text-white">Approvals</strong> to grant roles; open a member on the list to change status after approval.</p>
     {% endif %}
   </div>
 </div>
