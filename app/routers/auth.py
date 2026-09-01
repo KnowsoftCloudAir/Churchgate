@@ -70,7 +70,14 @@ async def login(
     user.last_login = datetime.utcnow()
     session.add(user)
     session.commit()
-    resp = RedirectResponse("/dashboard", status_code=303)
+    # Single login door — route by role (admin never advertised publicly)
+    if user.role == UserRole.general_admin:
+        dest = "/admin/"
+    elif user.role == UserRole.member:
+        dest = "/member/portal"
+    else:
+        dest = "/dashboard"
+    resp = RedirectResponse(dest, status_code=303)
     resp.set_cookie("access_token", token, httponly=True, max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60, samesite="lax")
     return resp
 

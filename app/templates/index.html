@@ -1,33 +1,116 @@
-{% extends "base.html" %}
-{% block title %}Knowsoft Churchgate – One Body, Synchronized{% endblock %}
-{% block content %}
-<div class="min-h-screen bg-gradient-to-br from-navy-950 via-navy-900 to-teal-900 text-white">
-  <div class="max-w-5xl mx-auto px-6 pt-16 pb-24">
-    <div class="flex items-center gap-3 mb-12">
-      <img src="/static/img/knowsoft-logo.png" alt="Knowsoft" class="h-12 w-auto object-contain" onerror="this.outerHTML='<div class=\'w-12 h-12 rounded-xl bg-teal-500 flex items-center justify-center font-bold text-xl\'>K</div>'">
-      <div>
-        <div class="text-2xl font-bold">Knowsoft</div>
-        <div class="text-teal-300 text-sm font-medium">Churchgate</div>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Knowsoft Churchgate – One Body, Synchronized</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
+  <script>tailwind.config={theme:{extend:{fontFamily:{sans:['Plus Jakarta Sans','system-ui','sans-serif'],serif:['Playfair Display','Georgia','serif']},colors:{navy:{800:'#1e3a5f',900:'#0f2744',950:'#0a192f'},gold:{400:'#fbbf24',500:'#d4a017'}}}}}</script>
+</head>
+<body class="font-sans antialiased text-navy-900 bg-slate-50">
+  <!-- Top bar – public only -->
+  <header class="absolute top-0 inset-x-0 z-20">
+    <div class="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
+      <div class="flex items-center gap-2 text-white">
+        <img src="/static/img/knowsoft-logo.png" alt="Knowsoft" class="h-9 w-auto object-contain drop-shadow" onerror="this.style.display='none'">
+        <span class="font-bold tracking-tight text-lg">Churchgate</span>
+      </div>
+      <nav class="flex items-center gap-2 sm:gap-3 text-sm">
+        <a href="/auth/login" class="px-4 py-2 rounded-lg text-white/90 hover:text-white hover:bg-white/10 transition">Sign in</a>
+        <a href="/join" class="px-4 py-2 rounded-lg bg-white text-navy-900 font-semibold shadow-lg hover:bg-gold-400 transition">Join as Member</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Hero -->
+  <section class="relative min-h-[92vh] flex items-center overflow-hidden">
+    <div class="absolute inset-0">
+      <img src="/static/img/church-hero.svg" alt="Church with cross"
+           class="w-full h-full object-cover"
+           onerror="this.style.display='none'; this.parentElement.classList.add('bg-gradient-to-br','from-navy-950','via-navy-900','to-slate-800')">
+      <div class="absolute inset-0 bg-gradient-to-r from-navy-950/95 via-navy-900/80 to-navy-900/50"></div>
+      <div class="absolute inset-0 bg-gradient-to-t from-navy-950/90 via-transparent to-navy-950/40"></div>
+    </div>
+    <div class="relative max-w-6xl mx-auto px-4 sm:px-6 py-24 w-full">
+      <p class="text-gold-400 font-semibold tracking-widest text-xs uppercase mb-4">Knowsoft Churchgate</p>
+      <h1 class="font-serif text-4xl sm:text-5xl lg:text-6xl text-white font-bold leading-tight max-w-2xl mb-6">
+        One denomination.<br>
+        <span class="text-gold-400">Every level connected.</span>
+      </h1>
+      <p class="text-lg text-slate-200 max-w-xl mb-10 leading-relaxed">
+        From the Global Church to every District — register your assembly, welcome members,
+        record attendance and offerings, share programs, and see the whole body grow together.
+      </p>
+      <div class="flex flex-wrap gap-4">
+        <a href="/join" class="px-8 py-3.5 rounded-xl bg-gold-400 text-navy-950 font-bold shadow-xl shadow-gold-400/20 hover:bg-amber-300 transition">
+          Register as Member
+        </a>
+        <a href="/auth/register-church" class="px-8 py-3.5 rounded-xl border-2 border-white/40 text-white font-semibold hover:bg-white/10 transition">
+          Register Your Church
+        </a>
+        <a href="/auth/login" class="px-8 py-3.5 rounded-xl text-white/90 font-medium hover:text-white underline-offset-4 hover:underline">
+          Already registered? Sign in
+        </a>
       </div>
     </div>
-    <h1 class="text-4xl sm:text-5xl font-extrabold leading-tight mb-6">
-      One denomination.<br>
-      <span class="text-teal-300">Every level synchronized.</span>
-    </h1>
-    <p class="text-lg text-navy-200 max-w-xl mb-10">
-      From Global Church to District — register, structure, record attendance, offerings, growth and generate reports. Data flows upward: District → Group → State → Country → Global.
-    </p>
-    <div class="flex flex-wrap gap-4">
-      <a href="/join" class="px-7 py-3.5 rounded-xl bg-teal-500 text-navy-950 font-semibold shadow-lg">Join as Member</a>
-      <a href="/auth/register-church" class="px-7 py-3.5 rounded-xl bg-white/10 border border-white/20 font-semibold">Register Your Church</a>
-      <a href="/auth/login" class="px-7 py-3.5 rounded-xl bg-white/10 border border-white/20 font-semibold">Sign In</a>
+  </section>
+
+  <!-- Pillars -->
+  <section class="max-w-6xl mx-auto px-4 sm:px-6 -mt-12 relative z-10 pb-20">
+    <div class="grid sm:grid-cols-3 gap-5">
+      <div class="bg-white rounded-2xl shadow-xl border border-slate-100 p-6">
+        <div class="w-11 h-11 rounded-xl bg-navy-900 text-gold-400 flex items-center justify-center text-xl mb-4">✝</div>
+        <h3 class="font-bold text-lg mb-2">Church hierarchy</h3>
+        <p class="text-sm text-slate-600 leading-relaxed">Global → Country → State → Group → District. One code tree keeps every assembly synchronized under your denomination.</p>
+      </div>
+      <div class="bg-white rounded-2xl shadow-xl border border-slate-100 p-6">
+        <div class="w-11 h-11 rounded-xl bg-navy-900 text-gold-400 flex items-center justify-center text-xl mb-4">👥</div>
+        <h3 class="font-bold text-lg mb-2">Members & workers</h3>
+        <p class="text-sm text-slate-600 leading-relaxed">Members join their district online. Pastors approve and assign workers, leaders and pastors. Profiles, prayer requests and reports in one place.</p>
+      </div>
+      <div class="bg-white rounded-2xl shadow-xl border border-slate-100 p-6">
+        <div class="w-11 h-11 rounded-xl bg-navy-900 text-gold-400 flex items-center justify-center text-xl mb-4">📊</div>
+        <h3 class="font-bold text-lg mb-2">Growth & programs</h3>
+        <p class="text-sm text-slate-600 leading-relaxed">Weekly attendance, tithes and offerings. Special programs with photos for members only — like, comment and download in your group and district.</p>
+      </div>
     </div>
-    <div class="mt-20 grid sm:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
-      <div class="bg-white/5 border border-white/10 rounded-2xl p-5"><div class="text-teal-300 font-bold mb-1">Global</div>Highest level · receives all data</div>
-      <div class="bg-white/5 border border-white/10 rounded-2xl p-5"><div class="text-teal-300 font-bold mb-1">Country → State</div>National & regional structure</div>
-      <div class="bg-white/5 border border-white/10 rounded-2xl p-5"><div class="text-teal-300 font-bold mb-1">Group → District</div>District is the primary unit</div>
-      <div class="bg-white/5 border border-white/10 rounded-2xl p-5"><div class="text-teal-300 font-bold mb-1">Analytics</div>Weekly to yearly charts & PDF</div>
+  </section>
+
+  <!-- How it works -->
+  <section class="bg-navy-950 text-white py-20">
+    <div class="max-w-6xl mx-auto px-4 sm:px-6">
+      <h2 class="font-serif text-3xl font-bold text-center mb-12">How Churchgate works</h2>
+      <div class="grid md:grid-cols-4 gap-8 text-center">
+        <div>
+          <div class="text-gold-400 text-3xl font-bold mb-2">1</div>
+          <h4 class="font-semibold mb-2">Church registers</h4>
+          <p class="text-sm text-slate-400">Global or branch assemblies apply with doctrine, pastor and structure codes.</p>
+        </div>
+        <div>
+          <div class="text-gold-400 text-3xl font-bold mb-2">2</div>
+          <h4 class="font-semibold mb-2">Approval & codes</h4>
+          <p class="text-sm text-slate-400">Each church receives its place in the tree. District becomes the primary unit of data.</p>
+        </div>
+        <div>
+          <div class="text-gold-400 text-3xl font-bold mb-2">3</div>
+          <h4 class="font-semibold mb-2">Members join</h4>
+          <p class="text-sm text-slate-400">Believers select Global → District, submit profile, and await district approval.</p>
+        </div>
+        <div>
+          <div class="text-gold-400 text-3xl font-bold mb-2">4</div>
+          <h4 class="font-semibold mb-2">Live ministry data</h4>
+          <p class="text-sm text-slate-400">Attendance, finance and programs flow upward so leaders see the whole field.</p>
+        </div>
+      </div>
+      <div class="mt-14 text-center">
+        <a href="/auth/login" class="inline-flex px-8 py-3.5 rounded-xl bg-gold-400 text-navy-950 font-bold hover:bg-amber-300 transition">Sign in to your account</a>
+      </div>
     </div>
-  </div>
-</div>
-{% endblock %}
+  </section>
+
+  <footer class="bg-navy-950 border-t border-white/10 py-8 text-center text-sm text-slate-500">
+    <p>© Knowsoft Churchgate · Knowledge for the Body of Christ</p>
+  </footer>
+</body>
+</html>
