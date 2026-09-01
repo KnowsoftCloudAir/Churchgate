@@ -30,6 +30,10 @@
         <a href="/church/create-child" class="px-3 py-1.5 rounded-lg hover:bg-slate-100 whitespace-nowrap">Sub-church</a>
         {% endif %}
         <a href="/programs/" class="px-3 py-1.5 rounded-lg hover:bg-slate-100 whitespace-nowrap">Programs</a>
+        {% if user.role in ['church_admin', 'data_officer', 'general_admin'] %}
+        <a href="/projects/" class="px-3 py-1.5 rounded-lg hover:bg-slate-100 whitespace-nowrap">Projects</a>
+        <a href="/church/settings" class="px-3 py-1.5 rounded-lg hover:bg-slate-100 whitespace-nowrap">Church info</a>
+        {% endif %}
         {% if user.role == 'member' or user.member_id %}
         <a href="/member/portal" class="px-3 py-1.5 rounded-lg hover:bg-slate-100 whitespace-nowrap">My profile</a>
         {% endif %}

@@ -10,7 +10,7 @@ from pathlib import Path
 from app.database import create_db_and_tables, get_session, engine
 from app.models import User, UserRole
 from app.auth import get_password_hash, get_current_user, verify_password, create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES
-from app.routers import auth, admin, church, district, members, programs
+from app.routers import auth, admin, church, district, members, programs, projects
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -53,6 +53,7 @@ app.include_router(church.router)
 app.include_router(district.router)
 app.include_router(members.router)
 app.include_router(programs.router)
+app.include_router(projects.router)
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request, user: Optional[User] = Depends(get_current_user)):

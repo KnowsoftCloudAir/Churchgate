@@ -146,15 +146,61 @@ async def member_portal(
     user: User = Depends(require_user),
     session: Session = Depends(get_session)
 ):
-    if user.role != UserRole.member and user.role != UserRole.general_admin:
-        # church staff can still view
-        pass
+    from app.models import SpecialProgram, ProgramPhoto, WeeklyStat, PhotoLike, PhotoComment
     member = session.get(ChurchMember, user.member_id) if user.member_id else None
-    if not member and user.role == UserRole.member:
+    if not member:
         member = session.exec(select(ChurchMember).where(ChurchMember.email == user.email)).first()
     church = session.get(ChurchUnit, user.church_id) if user.church_id else None
+    if not church and member:
+        church = session.get(ChurchUnit, member.church_id)
+
+    programs = []
+    photos = []
+    if church:
+        # Programs for this district + parents (group/state broadcasts)
+        scope = {church.id}
+        ch = church
+        while ch and ch.parent_id:
+            scope.add(ch.parent_id)
+            ch = session.get(ChurchUnit, ch.parent_id)
+        programs = session.exec(
+            select(SpecialProgram).where(
+                SpecialProgram.church_id.in_(list(scope)),
+                SpecialProgram.is_active == True
+            ).order_by(SpecialProgram.created_at.desc()).limit(10)
+        ).all()
+        prog_ids = [p.id for p in programs]
+        if prog_ids:
+            raw_photos = session.exec(
+                select(ProgramPhoto).where(ProgramPhoto.program_id.in_(prog_ids)).order_by(ProgramPhoto.created_at.desc()).limit(12)
+            ).all()
+            for ph in raw_photos:
+                likes = session.exec(select(PhotoLike).where(PhotoLike.photo_id == ph.id)).all()
+                comments = session.exec(select(PhotoComment).where(PhotoComment.photo_id == ph.id)).all()
+                photos.append({
+                    "id": ph.id, "path": ph.file_path, "caption": ph.caption,
+                    "program_id": ph.program_id,
+                    "likes": len(likes),
+                    "liked": any(l.user_id == user.id for l in likes),
+                    "comment_count": len(comments),
+                })
+
+    district_member_count = None
+    if church and getattr(user, "can_see_member_count", False):
+        district_member_count = len(session.exec(
+            select(ChurchMember).where(
+                ChurchMember.church_id == church.id,
+                ChurchMember.approval_status == "approved"
+            )
+        ).all())
+
+    weekly_note = (church.weekly_activities_note or church.activity_days) if church else None
+
     return templates.TemplateResponse("members/portal.html", {
-        "request": request, "user": user, "member": member, "church": church
+        "request": request, "user": user, "member": member, "church": church,
+        "programs": programs, "photos": photos,
+        "district_member_count": district_member_count,
+        "weekly_note": weekly_note,
     })
 
 @router.post("/member/update-profile")

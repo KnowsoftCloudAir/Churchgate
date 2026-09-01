@@ -217,6 +217,19 @@ def seed_knowsoft_bible_church(session: Session) -> None:
         print("   nigeria@knowsoftchurch.org / Church@12345")
         print("   global@knowsoftchurch.org / Church@12345")
         print("   data@allen.knowsoftchurch.org / Data@12345")
+        # Remittance sample on district
+        if district:
+            district.tithe_account_name = "Knowsoft Church Allen Tithe"
+            district.tithe_account_number = "0123456789"
+            district.tithe_bank_name = "Sample Bank"
+            district.offering_account_name = "Knowsoft Church Allen Offering"
+            district.offering_account_number = "9876543210"
+            district.offering_bank_name = "Sample Bank"
+            district.pastor_phone = "+234-801-234-5678"
+            district.pastor_email = "pastor@knowsoftchurch.org"
+            district.weekly_activities_note = "Sunday 8am & 10am · Wednesday Bible study 6pm · Friday prayer 7pm"
+            session.add(district)
+            session.commit()
     except Exception as e:
         session.rollback()
         print(f"⚠️ Sample seed error: {e}")

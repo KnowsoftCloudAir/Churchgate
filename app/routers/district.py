@@ -373,6 +373,7 @@ async def edit_member_status(
     leader_type: str = Form(""),
     custom_title: str = Form(""),
     can_enter_stats: str = Form(""),
+    can_see_member_count: str = Form(""),
     user: User = Depends(require_roles(UserRole.church_admin, UserRole.general_admin)),
     session: Session = Depends(get_session)
 ):
@@ -402,8 +403,8 @@ async def edit_member_status(
     if u:
         if can_enter_stats == "yes":
             u.can_enter_stats = True
-        elif can_enter_stats == "no":
-            u.can_enter_stats = False
+        if can_see_member_count == "yes":
+            u.can_see_member_count = True
         session.add(u)
     session.commit()
     return RedirectResponse("/district/members", status_code=303)

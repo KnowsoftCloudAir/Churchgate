@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Church settings{% endblock %}
+{% block content %}
+<div class="max-w-lg mx-auto px-4 py-8">
+  <h1 class="text-xl font-bold mb-2">Church public details</h1>
+  <p class="text-sm text-slate-500 mb-6">Shown on member dashboards (address, pastor, remittance accounts).</p>
+  <form method="post" action="/church/settings" class="bg-white rounded-2xl border p-6 space-y-3">
+    <input name="address" value="{{ church.address or '' }}" placeholder="Church address" class="w-full px-3 py-2 rounded-xl border">
+    <input name="resident_pastor" value="{{ church.resident_pastor or '' }}" placeholder="Resident pastor" class="w-full px-3 py-2 rounded-xl border">
+    <input name="pastor_phone" value="{{ church.pastor_phone or church.phone or '' }}" placeholder="Pastor phone" class="w-full px-3 py-2 rounded-xl border">
+    <input name="pastor_email" value="{{ church.pastor_email or church.email or '' }}" placeholder="Pastor email" class="w-full px-3 py-2 rounded-xl border">
+    <textarea name="weekly_activities_note" rows="2" placeholder="Weekly activities note" class="w-full px-3 py-2 rounded-xl border">{{ church.weekly_activities_note or church.activity_days or '' }}</textarea>
+    <hr>
+    <p class="text-sm font-semibold">Tithe account</p>
+    <input name="tithe_account_name" value="{{ church.tithe_account_name or '' }}" placeholder="Account name" class="w-full px-3 py-2 rounded-xl border">
+    <input name="tithe_account_number" value="{{ church.tithe_account_number or '' }}" placeholder="Account number" class="w-full px-3 py-2 rounded-xl border">
+    <input name="tithe_bank_name" value="{{ church.tithe_bank_name or '' }}" placeholder="Bank" class="w-full px-3 py-2 rounded-xl border">
+    <p class="text-sm font-semibold">Offering account</p>
+    <input name="offering_account_name" value="{{ church.offering_account_name or '' }}" placeholder="Account name" class="w-full px-3 py-2 rounded-xl border">
+    <input name="offering_account_number" value="{{ church.offering_account_number or '' }}" placeholder="Account number" class="w-full px-3 py-2 rounded-xl border">
+    <input name="offering_bank_name" value="{{ church.offering_bank_name or '' }}" placeholder="Bank" class="w-full px-3 py-2 rounded-xl border">
+    <button class="w-full py-3 rounded-xl bg-blue-700 text-white font-semibold">Save</button>
+  </form>
+</div>
+{% endblock %}

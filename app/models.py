@@ -66,6 +66,16 @@ class ChurchUnit(SQLModel, table=True):
     address: Optional[str] = None
     phone: Optional[str] = None
     email: Optional[str] = None
+    # Remittance accounts (shown on member dashboard)
+    tithe_account_name: Optional[str] = None
+    tithe_account_number: Optional[str] = None
+    tithe_bank_name: Optional[str] = None
+    offering_account_name: Optional[str] = None
+    offering_account_number: Optional[str] = None
+    offering_bank_name: Optional[str] = None
+    pastor_phone: Optional[str] = None
+    pastor_email: Optional[str] = None
+    weekly_activities_note: Optional[str] = Field(default=None, sa_column=Column(Text))
     approval_status: str = Field(default="pending")
     is_active: bool = Field(default=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -85,6 +95,7 @@ class User(SQLModel, table=True):
     can_enter_stats: bool = Field(default=False)  # designated for weekly attendance
     can_create_churches: bool = Field(default=False)  # GA grants: create child churches
     can_approve_members: bool = Field(default=False)  # GA grants: approve member registrations
+    can_see_member_count: bool = Field(default=False)  # see district member totals
     is_active: bool = Field(default=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     last_login: Optional[datetime] = None
@@ -194,3 +205,25 @@ class ActivityLog(SQLModel, table=True):
     action: str
     detail: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+class SpecialProject(SQLModel, table=True):
+    """Fundraising / special project with collection tracking for admin dashboard."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    church_id: int = Field(foreign_key="churchunit.id")
+    title: str
+    description: Optional[str] = Field(default=None, sa_column=Column(Text))
+    target_amount: float = Field(default=0.0)
+    account_name: Optional[str] = None
+    account_number: Optional[str] = None
+    bank_name: Optional[str] = None
+    is_active: bool = Field(default=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+class SpecialProjectContribution(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    project_id: int = Field(foreign_key="specialproject.id")
+    amount: float = Field(default=0.0)
+    contributor_name: Optional[str] = None
+    note: Optional[str] = None
+    recorded_by: Optional[int] = None
+    contributed_at: datetime = Field(default_factory=datetime.utcnow)

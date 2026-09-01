@@ -272,3 +272,49 @@ async def create_child(
     session.add(admin)
     session.commit()
     return RedirectResponse("/dashboard", status_code=303)
+
+
+@router.get("/church/settings", response_class=HTMLResponse)
+async def church_settings_page(
+    request: Request,
+    user: User = Depends(require_roles(UserRole.church_admin, UserRole.general_admin)),
+    session: Session = Depends(get_session)
+):
+    church = session.get(ChurchUnit, user.church_id) if user.church_id else None
+    if not church:
+        raise HTTPException(400, "No church linked")
+    return templates.TemplateResponse("church/settings.html", {"request": request, "user": user, "church": church})
+
+@router.post("/church/settings")
+async def church_settings_save(
+    address: str = Form(""),
+    resident_pastor: str = Form(""),
+    pastor_phone: str = Form(""),
+    pastor_email: str = Form(""),
+    weekly_activities_note: str = Form(""),
+    tithe_account_name: str = Form(""),
+    tithe_account_number: str = Form(""),
+    tithe_bank_name: str = Form(""),
+    offering_account_name: str = Form(""),
+    offering_account_number: str = Form(""),
+    offering_bank_name: str = Form(""),
+    user: User = Depends(require_roles(UserRole.church_admin, UserRole.general_admin)),
+    session: Session = Depends(get_session)
+):
+    church = session.get(ChurchUnit, user.church_id) if user.church_id else None
+    if not church:
+        raise HTTPException(400, "No church linked")
+    church.address = address.strip() or None
+    church.resident_pastor = resident_pastor.strip() or None
+    church.pastor_phone = pastor_phone.strip() or None
+    church.pastor_email = pastor_email.strip() or None
+    church.weekly_activities_note = weekly_activities_note.strip() or None
+    church.tithe_account_name = tithe_account_name.strip() or None
+    church.tithe_account_number = tithe_account_number.strip() or None
+    church.tithe_bank_name = tithe_bank_name.strip() or None
+    church.offering_account_name = offering_account_name.strip() or None
+    church.offering_account_number = offering_account_number.strip() or None
+    church.offering_bank_name = offering_bank_name.strip() or None
+    session.add(church)
+    session.commit()
+    return RedirectResponse("/church/settings", status_code=303)
