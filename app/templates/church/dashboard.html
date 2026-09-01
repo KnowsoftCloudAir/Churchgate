@@ -2,89 +2,113 @@
 {% block title %}Dashboard – Churchgate{% endblock %}
 {% block content %}
 <div class="max-w-6xl mx-auto px-4 py-8">
+  {% if church %}
   <div class="mb-8">
-    <h1 class="text-2xl font-bold">{{ church.name if church else "Welcome" }}</h1>
-    {% if church %}
-    <p class="text-sm text-slate-500">Code: <code class="bg-slate-100 px-1.5 rounded">{{ church.code }}</code> · Level: <span class="capitalize font-medium">{% if church.level.value is defined %}{{ church.level.value }}{% else %}{{ church.level }}{% endif %}</span> · Pastor: {{ church.resident_pastor or "—" }}</p>
-    {% endif %}
+    <h1 class="text-2xl sm:text-3xl font-bold text-navy-900">{{ church.name }}</h1>
+    <p class="text-sm text-slate-500 mt-1">
+      Code: <code class="bg-slate-100 px-1.5 py-0.5 rounded text-navy-800">{{ church.code }}</code>
+      · Level: <span class="capitalize font-medium">{% if church.level.value is defined %}{{ church.level.value }}{% else %}{{ church.level }}{% endif %}</span>
+      · Pastor: {{ church.resident_pastor or "—" }}
+    </p>
+  </div>
+  {% elif is_admin_overview %}
+  <div class="mb-8">
+    <h1 class="text-2xl font-bold">Platform overview</h1>
+    <p class="text-sm text-slate-500">General Admin · all churches</p>
+  </div>
+  {% else %}
+  <div class="mb-8 p-6 bg-amber-50 border border-amber-100 rounded-2xl">
+    <h1 class="text-xl font-bold text-navy-900">No church linked to this account</h1>
+    <p class="text-sm text-slate-600 mt-2">Sign in with a sample church admin, e.g. <strong>allen@knowsoftchurch.org</strong> / <strong>Church@12345</strong></p>
+  </div>
+  {% endif %}
+
+  <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+    <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+      <p class="text-xs font-medium text-slate-500 uppercase tracking-wide">Members in scope</p>
+      <p class="text-3xl font-bold text-teal-600 mt-1">{{ members_count }}</p>
+    </div>
+    <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+      <p class="text-xs font-medium text-slate-500 uppercase tracking-wide">Sub-units</p>
+      <p class="text-3xl font-bold text-navy-900 mt-1">{{ children|length }}</p>
+    </div>
+    <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+      <p class="text-xs font-medium text-slate-500 uppercase tracking-wide">Latest attendance</p>
+      <p class="text-3xl font-bold text-navy-900 mt-1">{{ latest_attendance }}</p>
+    </div>
+    <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+      <p class="text-xs font-medium text-slate-500 uppercase tracking-wide">Tithe (period)</p>
+      <p class="text-2xl font-bold text-navy-900 mt-1">{{ "%.0f"|format(total_tithe) }}</p>
+    </div>
   </div>
 
-  <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-    <div class="bg-white rounded-2xl border p-5 shadow-sm">
-      <p class="text-xs text-slate-500 uppercase">Members</p>
-      <p class="text-3xl font-bold text-teal-600">{{ members_count }}</p>
-    </div>
-    <div class="bg-white rounded-2xl border p-5 shadow-sm">
-      <p class="text-xs text-slate-500 uppercase">Sub-units</p>
-      <p class="text-3xl font-bold text-navy-800">{{ children|length }}</p>
-    </div>
-    <div class="bg-white rounded-2xl border p-5 shadow-sm">
-      <p class="text-xs text-slate-500 uppercase">Weeks recorded</p>
-      <p class="text-3xl font-bold text-navy-800">{{ stats|length }}</p>
-    </div>
-    <div class="bg-white rounded-2xl border p-5 shadow-sm">
-      <p class="text-xs text-slate-500 uppercase">Your role</p>
-      <p class="text-lg font-bold capitalize">{% if user.role.value is defined %}{{ user.role.value.replace('_', ' ') }}{% else %}{{ user.role }}{% endif %}</p>
-    </div>
-  </div>
-
-  <div class="grid lg:grid-cols-2 gap-8">
-    <div class="bg-white rounded-2xl border p-6 shadow-sm">
-      <h2 class="font-semibold mb-4">Attendance trend (recent weeks)</h2>
+  {% if chart_labels and chart_labels|length > 0 %}
+  <div class="grid lg:grid-cols-2 gap-6 mb-8">
+    <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
+      <h2 class="font-semibold text-navy-900 mb-4">Attendance trend</h2>
       <div class="h-56"><canvas id="attChart"></canvas></div>
     </div>
-    <div class="bg-white rounded-2xl border p-6 shadow-sm">
-      <h2 class="font-semibold mb-4">Finance (Offering / Tithe / Donation)</h2>
+    <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
+      <h2 class="font-semibold text-navy-900 mb-4">Finance</h2>
       <div class="h-56"><canvas id="finChart"></canvas></div>
     </div>
   </div>
+  {% else %}
+  <div class="bg-white rounded-2xl border border-dashed border-slate-200 p-8 text-center text-slate-500 text-sm mb-8">
+    No weekly statistics in scope yet. District data officers enter stats under <strong>Attendance</strong>.
+  </div>
+  {% endif %}
 
   {% if children %}
-  <div class="mt-8 bg-white rounded-2xl border p-6 shadow-sm">
-    <h2 class="font-semibold mb-4">Child units (feeding this level)</h2>
-    <ul class="divide-y">
+  <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 mb-8">
+    <h2 class="font-semibold text-navy-900 mb-4">Child units</h2>
+    <ul class="divide-y divide-slate-100">
       {% for ch in children %}
-      <li class="py-3 flex justify-between text-sm">
-        <span class="font-medium">{{ ch.name }}</span>
-        <span class="text-slate-500"><code>{{ ch.code }}</code> · {% if ch.level.value is defined %}{{ ch.level.value }}{% else %}{{ ch.level }}{% endif %}</span>
+      <li class="py-3 flex flex-wrap justify-between gap-2 text-sm">
+        <span class="font-medium text-navy-800">{{ ch.name }}</span>
+        <span class="text-slate-500"><code class="text-xs bg-slate-50 px-1 rounded">{{ ch.code }}</code>
+          · {% if ch.level.value is defined %}{{ ch.level.value }}{% else %}{{ ch.level }}{% endif %}
+          · {{ ch.approval_status }}</span>
       </li>
       {% endfor %}
     </ul>
   </div>
   {% endif %}
 
-  <div class="mt-6 flex flex-wrap gap-3">
-    <a href="/district/stats/enter" class="px-4 py-2 rounded-xl bg-teal-500 text-white text-sm font-medium">Enter weekly stats</a>
-    <a href="/district/members" class="px-4 py-2 rounded-xl bg-navy-800 text-white text-sm font-medium">Manage members</a>
-    <a href="/district/reports/pdf?period=monthly" class="px-4 py-2 rounded-xl border text-sm font-medium">Download PDF report</a>
+  {% if church %}
+  <div class="flex flex-wrap gap-3">
+    <a href="/district/stats/enter" class="px-4 py-2.5 rounded-xl bg-teal-500 text-white text-sm font-semibold shadow-sm">Enter weekly stats</a>
+    <a href="/district/members" class="px-4 py-2.5 rounded-xl bg-navy-900 text-white text-sm font-semibold">Members</a>
+    <a href="/district/approvals" class="px-4 py-2.5 rounded-xl border border-slate-200 text-sm font-medium bg-white">Approvals</a>
+    <a href="/programs/" class="px-4 py-2.5 rounded-xl border border-slate-200 text-sm font-medium bg-white">Programs</a>
+    <a href="/district/reports/pdf" class="px-4 py-2.5 rounded-xl border border-slate-200 text-sm font-medium bg-white">PDF report</a>
   </div>
+  {% endif %}
 </div>
 {% endblock %}
 {% block scripts %}
 <script>
-const stats = {{ stats | map(attribute='week_start') | list | tojson if stats else '[]' }};
-const labels = [{% for s in stats %}"{{ s.week_start }}"{% if not loop.last %},{% endif %}{% endfor %}].reverse();
-const att = [{% for s in stats %}{{ s.adult_male + s.adult_female + s.children_boys + s.children_girls + s.youth_male + s.youth_female }}{% if not loop.last %},{% endif %}{% endfor %}].reverse();
-const off = [{% for s in stats %}{{ s.offering }}{% if not loop.last %},{% endif %}{% endfor %}].reverse();
-const tithe = [{% for s in stats %}{{ s.tithe }}{% if not loop.last %},{% endif %}{% endfor %}].reverse();
-const don = [{% for s in stats %}{{ s.donation }}{% if not loop.last %},{% endif %}{% endfor %}].reverse();
-
-if (document.getElementById('attChart') && labels.length) {
+const labels = {{ chart_labels|tojson }};
+const att = {{ chart_attendance|tojson }};
+const off = {{ chart_offering|tojson }};
+const tithe = {{ chart_tithe|tojson }};
+const don = {{ chart_donation|tojson }};
+if (labels && labels.length && document.getElementById('attChart')) {
   new Chart(document.getElementById('attChart'), {
     type: 'bar',
-    data: { labels, datasets: [{ label: 'Total attendance', data: att, backgroundColor: '#14b8a6' }] },
+    data: { labels, datasets: [{ label: 'Attendance', data: att, backgroundColor: '#14b8a6', borderRadius: 6 }] },
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
   });
 }
-if (document.getElementById('finChart') && labels.length) {
+if (labels && labels.length && document.getElementById('finChart')) {
   new Chart(document.getElementById('finChart'), {
     type: 'line',
     data: {
       labels,
       datasets: [
-        { label: 'Offering', data: off, borderColor: '#14b8a6', tension: 0.3 },
-        { label: 'Tithe', data: tithe, borderColor: '#243b53', tension: 0.3 },
-        { label: 'Donation', data: don, borderColor: '#fbbf24', tension: 0.3 }
+        { label: 'Offering', data: off, borderColor: '#14b8a6', tension: 0.3, fill: false },
+        { label: 'Tithe', data: tithe, borderColor: '#0f2744', tension: 0.3, fill: false },
+        { label: 'Donation', data: don, borderColor: '#d4a017', tension: 0.3, fill: false }
       ]
     },
     options: { responsive: true, maintainAspectRatio: false }

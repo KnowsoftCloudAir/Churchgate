@@ -2,25 +2,40 @@
 {% block title %}Members – Churchgate{% endblock %}
 {% block content %}
 <div class="max-w-5xl mx-auto px-4 py-8">
-  <div class="flex justify-between items-center mb-6">
-    <h1 class="text-2xl font-bold">Members · {{ church.name }}</h1>
-    <a href="/district/members/add" class="px-4 py-2 rounded-xl bg-teal-500 text-white text-sm font-medium">Add member</a>
+  <div class="flex flex-wrap justify-between items-center gap-4 mb-6">
+    <div>
+      <h1 class="text-2xl font-bold text-navy-900">Members</h1>
+      <p class="text-sm text-slate-500">{{ church.name if church else "" }} · {{ members|length }} listed</p>
+    </div>
+    <a href="/district/members/add" class="px-4 py-2 rounded-xl bg-teal-500 text-white text-sm font-semibold">Add member</a>
   </div>
-  <div class="bg-white rounded-2xl border overflow-hidden">
-    <table class="w-full text-sm">
-      <thead class="bg-slate-50 text-left"><tr>
-        <th class="p-3">Name</th><th class="p-3">Status</th><th class="p-3">Role detail</th><th class="p-3">Contact</th>
-      </tr></thead>
+  <div class="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-x-auto">
+    <table class="w-full text-sm min-w-[640px]">
+      <thead class="bg-slate-50 text-left text-slate-600">
+        <tr>
+          <th class="p-3 font-medium">Name</th>
+          <th class="p-3 font-medium">Status</th>
+          <th class="p-3 font-medium">Role detail</th>
+          <th class="p-3 font-medium">Contact</th>
+          <th class="p-3 font-medium">Approval</th>
+        </tr>
+      </thead>
       <tbody>
         {% for m in members %}
-        <tr class="border-t">
-          <td class="p-3 font-medium">{{ m.full_name }}</td>
+        <tr class="border-t border-slate-100 hover:bg-slate-50/80">
+          <td class="p-3 font-medium text-navy-900">{{ m.full_name }}</td>
           <td class="p-3 capitalize">{{ m.status }}</td>
           <td class="p-3 text-slate-500">{{ m.worker_type or m.leader_type or "—" }}</td>
-          <td class="p-3 text-slate-500">{{ m.phone or m.email or "—" }}</td>
+          <td class="p-3 text-slate-500">{{ m.whatsapp or m.phone or m.email or "—" }}</td>
+          <td class="p-3 capitalize text-xs">{{ m.approval_status }}</td>
         </tr>
         {% else %}
-        <tr><td colspan="4" class="p-6 text-center text-slate-400">No members yet</td></tr>
+        <tr>
+          <td colspan="5" class="p-10 text-center text-slate-400">
+            No members at this unit yet. Sample data is on <strong>Allen Avenue District</strong> —
+            sign in as <code class="text-xs bg-slate-100 px-1 rounded">allen@knowsoftchurch.org</code>
+          </td>
+        </tr>
         {% endfor %}
       </tbody>
     </table>

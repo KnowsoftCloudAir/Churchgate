@@ -28,8 +28,16 @@ async def list_members(
     session: Session = Depends(get_session)
 ):
     church = get_user_church(user, session)
+    # Include members under this unit and descendants (so Group/State see district members)
+    ids = [church.id]
+    queue = [church.id]
+    while queue:
+        pid = queue.pop(0)
+        for k in session.exec(select(ChurchUnit).where(ChurchUnit.parent_id == pid)).all():
+            ids.append(k.id)
+            queue.append(k.id)
     members = session.exec(
-        select(ChurchMember).where(ChurchMember.church_id == church.id).order_by(ChurchMember.full_name)
+        select(ChurchMember).where(ChurchMember.church_id.in_(ids)).order_by(ChurchMember.full_name)
     ).all()
     return templates.TemplateResponse("district/members.html", {
         "request": request, "user": user, "church": church, "members": members
