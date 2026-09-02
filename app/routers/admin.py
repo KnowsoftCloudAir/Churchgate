@@ -1,6 +1,6 @@
+from fastapi.responses import HTMLResponse, RedirectResponse
 from pathlib import Path
 from fastapi import APIRouter, Depends, Request, Form, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlmodel import Session, select
 
@@ -25,36 +25,35 @@ async def admin_home(
     user: User = Depends(require_roles(UserRole.general_admin)),
     session: Session = Depends(get_session)
 ):
-    """General Admin home — defensive against missing columns / enum quirks."""
     churches, users, pending, subadmins = [], [], [], []
     error_note = None
     try:
-        churches = list(session.exec(select(ChurchUnit).order_by(ChurchUnit.created_at.desc())).all())
+        churches = list(session.exec(select(ChurchUnit)).all())
+        churches.sort(key=lambda c: getattr(c, "created_at", None) or 0, reverse=True)
     except Exception as e:
-        error_note = f"Churches load issue: {e}"
+        error_note = f"Churches: {e}"
         try:
             session.rollback()
         except Exception:
             pass
     try:
-        users = list(session.exec(select(User).order_by(User.created_at.desc()).limit(100)).all())
+        users = list(session.exec(select(User)).all())[:100]
     except Exception as e:
-        error_note = (error_note or "") + f" Users load issue: {e}"
+        error_note = (error_note or "") + f" Users: {e}"
         try:
             session.rollback()
         except Exception:
             pass
         users = []
-
-    pending = [c for c in churches if (getattr(c, "approval_status", None) or "") == "pending"]
+    pending = [c for c in churches if (getattr(c, "approval_status", "") or "") == "pending"]
     subadmins = [u for u in users if _safe_role(u) == "church_admin"]
-
-    # Ensure template attrs exist
     for u in subadmins:
         for attr in ("can_create_churches", "can_approve_members", "can_enter_stats", "can_see_member_count"):
             if not hasattr(u, attr):
-                setattr(u, attr, False)
-
+                try:
+                    setattr(u, attr, False)
+                except Exception:
+                    pass
     try:
         return templates.TemplateResponse("admin/dashboard.html", {
             "request": request,
@@ -66,20 +65,19 @@ async def admin_home(
             "error_note": error_note,
         })
     except Exception as e:
-        # Absolute fallback so admin is never a blank 500
-        html = f"""<!DOCTYPE html><html><head><title>Admin</title>
-        <style>body{{font-family:system-ui;max-width:40rem;margin:2rem auto;padding:1rem}}
-        a{{color:#1e40af}}</style></head><body>
-        <h1>General Admin</h1>
-        <p>Logged in as {getattr(user,'email','admin')}</p>
-        <p style="color:#b91c1c">Template issue: {e}</p>
-        <p><a href="/admin/globals">Global churches</a> ·
-        <a href="/ks-admin/login">Login</a> ·
-        <a href="/auth/logout">Sign out</a></p>
-        <p>Churches loaded: {len(churches)} · Pending: {len(pending)} · Users: {len(users)}</p>
-        <ul>{''.join(f'<li>{c.name} ({c.code}) – {c.approval_status}</li>' for c in churches[:30])}</ul>
-        </body></html>"""
-        return HTMLResponse(html)
+        rows = "".join(
+            f"<li>{getattr(c,'name','?')} ({getattr(c,'code','')}) – {getattr(c,'approval_status','')}</li>"
+            for c in churches[:40]
+        )
+        return HTMLResponse(
+            f"""<!DOCTYPE html><html><body style="font-family:system-ui;max-width:40rem;margin:2rem auto;padding:1rem">
+            <h1>General Admin</h1>
+            <p>{getattr(user,'email','')}</p>
+            <p style="color:#b91c1c">UI error: {e}</p>
+            <p><a href="/auth/logout">Sign out</a> · <a href="/admin/globals">Globals</a></p>
+            <p>Churches: {len(churches)} · Pending: {len(pending)}</p>
+            <ul>{rows}</ul></body></html>"""
+        )
 
 
 @router.get("/churches/{church_id}", response_class=HTMLResponse)

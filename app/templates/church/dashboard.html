@@ -15,7 +15,7 @@
         <h1 class="text-2xl sm:text-3xl font-bold">{{ church.name }}</h1>
         <p class="text-sm text-blue-200/80 mt-1">
           <code class="bg-white/10 px-1.5 rounded">{{ church.code }}</code>
-          · {% if church.level.value is defined %}{{ church.level.value }}{% else %}{{ church.level }}{% endif %}
+          · {{ church.level.value if church.level is defined and church.level.value is defined else church.level }}
           · {{ church.resident_pastor or "—" }}
         </p>
       </div>

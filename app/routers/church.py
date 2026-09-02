@@ -37,12 +37,13 @@ async def dashboard(
     session: Session = Depends(get_session)
 ):
     # Only staff OR members with pastor status may use the church dashboard
-    if user.role == UserRole.member:
+    from app.auth import role_val
+    if role_val(user.role) == "member":
         from app.models import ChurchMember
         m = session.get(ChurchMember, user.member_id) if user.member_id else None
         if not m:
             m = session.exec(select(ChurchMember).where(ChurchMember.email == user.email)).first()
-        is_pastor = m and (m.status or "").lower() == "pastor"
+        is_pastor = m and (str(m.status or "")).lower() == "pastor"
         if not is_pastor:
             return RedirectResponse("/member/portal", status_code=303)
     church = session.get(ChurchUnit, user.church_id) if user.church_id else None
@@ -60,7 +61,7 @@ async def dashboard(
     scope_ids = []
     demo = {}
 
-    if user.role == UserRole.general_admin and not church:
+    if role_val(user.role) == "general_admin" and not church:
         # Show global sample overview
         churches = session.exec(select(ChurchUnit).order_by(ChurchUnit.name)).all()
         members_count = len(session.exec(select(ChurchMember)).all())
@@ -71,6 +72,7 @@ async def dashboard(
             "chart_tithe": [], "chart_donation": [],
             "total_offering": 0, "total_tithe": 0, "latest_attendance": 0,
             "is_admin_overview": True, "demo": {},
+            "map_markers": [], "is_global_view": False, "admin_viewing": False,
         })
 
     if church:
