@@ -16,6 +16,11 @@ SECRET_KEY = os.getenv("SECRET_KEY", "knowsoft-churchgate-change-this-in-product
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 1440))
 
+def role_val(role) -> str:
+    if role is None:
+        return ""
+    return str(getattr(role, "value", role)).lower().replace("userrole.", "")
+
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token", auto_error=False)
 
@@ -55,6 +60,26 @@ async def get_current_user(
     user = get_user_by_email(session, email)
     if not user or not user.is_active:
         return None
+    rv = role_val(user.role)
+    # Staff always see church dashboard; members only if granted or pastor status
+    if rv in ("general_admin", "church_admin", "data_officer"):
+        user.can_view_church_dashboard = True
+    elif rv == "member":
+        granted = bool(getattr(user, "can_view_church_dashboard", False))
+        try:
+            from app.models import ChurchMember
+            m = None
+            if user.member_id:
+                m = session.get(ChurchMember, user.member_id)
+            if not m and user.email:
+                m = session.exec(select(ChurchMember).where(ChurchMember.email == user.email)).first()
+            if m and (str(m.status or "")).lower() == "pastor":
+                granted = True
+        except Exception:
+            pass
+        user.can_view_church_dashboard = granted
+    else:
+        user.can_view_church_dashboard = False
     return user
 
 async def require_user(user: Optional[User] = Depends(get_current_user)) -> User:
@@ -64,7 +89,9 @@ async def require_user(user: Optional[User] = Depends(get_current_user)) -> User
 
 def require_roles(*roles: UserRole):
     async def checker(user: User = Depends(require_user)) -> User:
-        if user.role not in roles and user.role != UserRole.general_admin:
+        rv = role_val(user.role)
+        allowed = {role_val(r) for r in roles} | {"general_admin"}
+        if rv not in allowed:
             raise HTTPException(status_code=403, detail="Insufficient permissions")
         return user
     return checker

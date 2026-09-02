@@ -10,10 +10,7 @@ import string
 
 from app.database import get_session
 from app.models import User, UserRole, ChurchUnit, ChurchLevel, ApprovalStatus, ChurchMember
-from app.auth import (
-    verify_password, get_password_hash, create_access_token,
-    get_current_user, ACCESS_TOKEN_EXPIRE_MINUTES
-)
+from app.auth import role_val, verify_password, get_password_hash, create_access_token, get_current_user, ACCESS_TOKEN_EXPIRE_MINUTES
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent.parent / "templates"))
@@ -78,7 +75,7 @@ async def login(
     else:
         dest = "/dashboard"
     resp = RedirectResponse(dest, status_code=303)
-    resp.set_cookie("access_token", token, httponly=True, max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60, samesite="lax")
+    resp.set_cookie("access_token", token, httponly=True, max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60, samesite="lax", path="/")
     return resp
 
 @router.get("/register-church", response_class=HTMLResponse)
@@ -107,11 +104,15 @@ async def register_church(
     admin_password: str = Form(...),
     session: Session = Depends(get_session)
 ):
+    level_raw = (level or "").strip().lower()
+    level_map = {"global": "global", "global_church": "global", "country": "country",
+                 "state": "state", "group": "group", "district": "district"}
+    level_raw = level_map.get(level_raw, level_raw)
     try:
-        church_level = ChurchLevel(level)
+        church_level = ChurchLevel(level_raw)
     except ValueError:
         return templates.TemplateResponse("auth/register_church.html", {
-            "request": request, "error": "Invalid church level"
+            "request": request, "error": f"Invalid church level: {level}"
         }, status_code=400)
 
     parent_id = None

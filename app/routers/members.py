@@ -277,3 +277,13 @@ async def churches_by_level(level: str = "global", session: Session = Depends(ge
         ).order_by(ChurchUnit.name)
     ).all()
     return [{"id": c.id, "name": c.name, "code": c.code, "level": getattr(c.level, "value", str(c.level))} for c in rows]
+
+
+@router.get("/api/geo/countries")
+async def geo_countries():
+    import json
+    from pathlib import Path as P
+    p = P(__file__).resolve().parent.parent / "data" / "countries.json"
+    if not p.exists():
+        return []
+    return json.loads(p.read_text(encoding="utf-8"))

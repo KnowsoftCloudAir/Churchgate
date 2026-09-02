@@ -95,7 +95,8 @@ class User(SQLModel, table=True):
     can_enter_stats: bool = Field(default=False)  # designated for weekly attendance
     can_create_churches: bool = Field(default=False)  # GA grants: create child churches
     can_approve_members: bool = Field(default=False)  # GA grants: approve member registrations
-    can_see_member_count: bool = Field(default=False)  # see district member totals
+    can_see_member_count: bool = Field(default=False)
+    can_view_church_dashboard: bool = Field(default=False)  # sub-admin grants church dashboard to member  # see district member totals
     is_active: bool = Field(default=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     last_login: Optional[datetime] = None

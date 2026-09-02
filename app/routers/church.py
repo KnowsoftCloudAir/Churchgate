@@ -36,6 +36,10 @@ async def dashboard(
     user: User = Depends(require_user),
     session: Session = Depends(get_session)
 ):
+    from app.auth import role_val
+    # Members must not see church dashboard unless sub-admin granted access (or pastor)
+    if role_val(user.role) == "member" and not getattr(user, "can_view_church_dashboard", False):
+        return RedirectResponse("/member/portal", status_code=303)
     church = session.get(ChurchUnit, user.church_id) if user.church_id else None
     children = []
     stats = []
@@ -163,6 +167,31 @@ async def dashboard(
             total_tithe += float(s.tithe)
         if chart_attendance:
             latest_attendance = chart_attendance[-1]
+
+    
+    map_markers = []
+    state_summary = []
+    is_global_view = False
+    if church:
+        lv = str(getattr(church.level, "value", church.level)).lower()
+        is_global_view = lv in ("global", "global_church")
+        if is_global_view and scope_ids:
+            state_counts = {}
+            for uid in scope_ids:
+                u = session.get(ChurchUnit, uid)
+                if not u:
+                    continue
+                if getattr(u, "latitude", None) is not None and getattr(u, "longitude", None) is not None:
+                    map_markers.append({
+                        "name": u.name, "code": u.code,
+                        "level": str(getattr(u.level, "value", u.level)),
+                        "lat": float(u.latitude), "lng": float(u.longitude),
+                        "address": u.address or "",
+                        "country": u.country_name or "", "state": u.state_name or "",
+                    })
+                key = (u.country_name or "Unknown", u.state_name or "Unknown")
+                state_counts[key] = state_counts.get(key, 0) + 1
+            state_summary = [{"country": a, "state": b, "count": n} for (a, b), n in state_counts.items()]
 
     return templates.TemplateResponse("church/dashboard.html", {
         "request": request,

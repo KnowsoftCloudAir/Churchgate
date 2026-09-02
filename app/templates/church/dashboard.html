@@ -44,7 +44,30 @@
     </div>
 
     <!-- Demographics -->
-    {% if demo %}
+    
+    {% if is_global_view %}
+    <div class="stat-card rounded-2xl p-6 mb-8" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12)">
+      <h2 class="font-semibold mb-2">World map of assemblies</h2>
+      <p class="text-sm text-blue-200 mb-3">Zoom from world → country. State table shows how many churches are in each state.</p>
+      <div id="churchMap" class="h-96 rounded-xl overflow-hidden bg-slate-900/40 border border-white/10 z-0"></div>
+      {% if state_summary %}
+      <div class="mt-4 overflow-x-auto">
+        <table class="w-full text-sm text-left">
+          <thead><tr class="text-blue-200"><th class="py-1 pr-4">Country</th><th class="py-1 pr-4">State</th><th class="py-1">Churches</th></tr></thead>
+          <tbody>
+          {% for s in state_summary %}
+            <tr class="border-t border-white/10"><td class="py-1.5 pr-4">{{ s.country }}</td><td class="py-1.5 pr-4">{{ s.state }}</td><td class="py-1.5 font-semibold">{{ s.count }}</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+      {% if not map_markers %}
+      <p class="text-xs text-blue-200/80 mt-2">Set latitude/longitude under Church info so units appear on the map.</p>
+      {% endif %}
+    </div>
+    {% endif %}
+{% if demo %}
     <div class="grid lg:grid-cols-3 gap-6 mb-8">
       <div class="stat-card rounded-2xl p-6 lg:col-span-1">
         <h2 class="font-semibold mb-4">Membership mix</h2>
@@ -120,6 +143,30 @@
   </div>
 </div>
 {% endblock %}
+
+{% block scripts %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+{% if is_global_view %}
+<script>
+(function(){
+  var markers = {{ (map_markers if map_markers is defined else [])|tojson }};
+  var el = document.getElementById('churchMap');
+  if (!el || typeof L === 'undefined') return;
+  var map = L.map('churchMap').setView([20,0], 2);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:12,attribution:'&copy; OpenStreetMap'}).addTo(map);
+  var bounds = [];
+  (markers||[]).forEach(function(m){
+    var mk = L.marker([m.lat,m.lng]).addTo(map);
+    mk.bindPopup('<strong>'+m.name+'</strong><br>'+(m.level||'')+'<br>'+(m.country||'')+' · '+(m.state||'')+'<br>'+(m.address||''));
+    bounds.push([m.lat,m.lng]);
+  });
+  if (bounds.length) map.fitBounds(bounds,{padding:[30,30],maxZoom:8});
+  setTimeout(function(){ map.invalidateSize(); }, 200);
+})();
+</script>
+{% endif %}
+
 {% block scripts %}
 <script>
 const labels = {{ chart_labels|tojson }};

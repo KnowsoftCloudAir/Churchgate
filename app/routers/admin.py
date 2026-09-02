@@ -165,3 +165,79 @@ async def activate(
     session.add(target)
     session.commit()
     return RedirectResponse("/admin/", status_code=303)
+
+
+@router.post("/churches/{church_id}/disapprove")
+async def disapprove_church(
+    church_id: int,
+    user: User = Depends(require_roles(UserRole.general_admin)),
+    session: Session = Depends(get_session)
+):
+    """Deactivate a church (esp. Global) and all branches + logins."""
+    church = session.get(ChurchUnit, church_id)
+    if not church:
+        raise HTTPException(404, "Church not found")
+    ids = [church.id]
+    queue = [church.id]
+    while queue:
+        pid = queue.pop(0)
+        for k in session.exec(select(ChurchUnit).where(ChurchUnit.parent_id == pid)).all():
+            ids.append(k.id)
+            queue.append(k.id)
+    for cid in ids:
+        unit = session.get(ChurchUnit, cid)
+        if unit:
+            unit.approval_status = "rejected"
+            unit.is_active = False
+            session.add(unit)
+        for u in session.exec(select(User).where(User.church_id == cid)).all():
+            if u.role != UserRole.general_admin:
+                u.is_active = False
+                session.add(u)
+    session.commit()
+    return RedirectResponse("/admin/globals", status_code=303)
+
+
+@router.get("/churches/{church_id}/dashboard", response_class=HTMLResponse)
+async def admin_church_dashboard(
+    church_id: int,
+    request: Request,
+    user: User = Depends(require_roles(UserRole.general_admin)),
+    session: Session = Depends(get_session)
+):
+    from app.routers.church import collect_descendant_ids
+    church = session.get(ChurchUnit, church_id)
+    if not church:
+        raise HTTPException(404, "Not found")
+    # Reuse church dashboard by temporarily setting context — call same template builder
+    from app.models import ChurchMember, WeeklyStat
+    ids = collect_descendant_ids(session, church.id)
+    children = list(session.exec(select(ChurchUnit).where(ChurchUnit.parent_id == church.id)).all())
+    members_list = list(session.exec(select(ChurchMember).where(ChurchMember.church_id.in_(ids), ChurchMember.approval_status=="approved")).all())
+    members_count = len(members_list)
+    demo = {"men":0,"women":0,"youth_boys":0,"youth_girls":0,"ya_boys":0,"ya_girls":0,"children_boys":0,"children_girls":0,
+            "newcomers_men":0,"newcomers_women":0,"newcomers_children":0,"converts_men":0,"converts_women":0,"converts_children":0}
+    map_markers = []
+    # Country/state aggregation for map
+    state_counts = {}
+    for uid in ids:
+        u = session.get(ChurchUnit, uid)
+        if not u:
+            continue
+        if u.latitude is not None and u.longitude is not None:
+            map_markers.append({"name": u.name, "code": u.code, "level": str(getattr(u.level,"value",u.level)),
+                "lat": float(u.latitude), "lng": float(u.longitude), "address": u.address or "",
+                "country": u.country_name or "", "state": u.state_name or ""})
+        key = (u.country_name or "Unknown", u.state_name or "Unknown")
+        state_counts[key] = state_counts.get(key, 0) + 1
+    state_summary = [{"country": k[0], "state": k[1], "count": v} for k, v in state_counts.items()]
+    lv = str(getattr(church.level, "value", church.level)).lower()
+    is_global_view = lv in ("global", "global_church")
+    return templates.TemplateResponse("church/dashboard.html", {
+        "request": request, "user": user, "church": church, "children": children,
+        "stats": [], "members_count": members_count,
+        "chart_labels": [], "chart_attendance": [], "chart_offering": [], "chart_tithe": [], "chart_donation": [],
+        "total_offering": 0, "total_tithe": 0, "latest_attendance": 0,
+        "is_admin_overview": False, "demo": demo, "admin_viewing": True,
+        "map_markers": map_markers, "is_global_view": is_global_view, "state_summary": state_summary,
+    })
