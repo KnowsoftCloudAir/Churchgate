@@ -1,6 +1,6 @@
-from fastapi.responses import HTMLResponse, RedirectResponse
 from pathlib import Path
 from fastapi import APIRouter, Depends, Request, Form, HTTPException
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlmodel import Session, select
 
@@ -19,65 +19,192 @@ def _safe_role(u) -> str:
         return ""
 
 
+def _admin_shell(title: str, body: str, email: str = "") -> HTMLResponse:
+    """Self-contained admin HTML — never depends on base.html."""
+    html = f"""<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{title}</title>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-100 text-slate-900 min-h-screen">
+<header class="bg-white border-b border-slate-200 sticky top-0 z-10">
+  <div class="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between gap-3">
+    <div class="font-bold text-slate-900">Knowsoft Churchgate · General Admin</div>
+    <div class="flex items-center gap-3 text-sm">
+      <span class="text-slate-500 hidden sm:inline">{email}</span>
+      <a href="/admin/" class="text-blue-700 font-medium">Home</a>
+      <a href="/admin/globals" class="text-blue-700 font-medium">Globals</a>
+      <a href="/auth/change-password" class="text-slate-600">Password</a>
+      <a href="/auth/logout" class="text-red-600 font-medium">Sign out</a>
+    </div>
+  </div>
+</header>
+<main class="max-w-5xl mx-auto px-4 py-8">{body}</main>
+</body></html>"""
+    return HTMLResponse(html)
+
+
 @router.get("/", response_class=HTMLResponse)
 async def admin_home(
     request: Request,
     user: User = Depends(require_roles(UserRole.general_admin)),
-    session: Session = Depends(get_session)
+    session: Session = Depends(get_session),
 ):
-    churches, users, pending, subadmins = [], [], [], []
-    error_note = None
+    churches, pending, subadmins = [], [], []
+    note = ""
     try:
         churches = list(session.exec(select(ChurchUnit)).all())
-        churches.sort(key=lambda c: getattr(c, "created_at", None) or 0, reverse=True)
+        try:
+            churches.sort(key=lambda c: c.created_at or c.id or 0, reverse=True)
+        except Exception:
+            pass
     except Exception as e:
-        error_note = f"Churches: {e}"
+        note += f" Churches load error: {e}."
         try:
             session.rollback()
         except Exception:
             pass
     try:
-        users = list(session.exec(select(User)).all())[:100]
+        users = list(session.exec(select(User)).all())
     except Exception as e:
-        error_note = (error_note or "") + f" Users: {e}"
+        note += f" Users load error: {e}."
+        users = []
         try:
             session.rollback()
         except Exception:
             pass
-        users = []
+
     pending = [c for c in churches if (getattr(c, "approval_status", "") or "") == "pending"]
     subadmins = [u for u in users if _safe_role(u) == "church_admin"]
+
+    pending_html = ""
+    for c in pending:
+        pending_html += f"""
+        <div class="p-3 mb-2 rounded-xl bg-amber-50 border border-amber-100 text-sm">
+          <p class="font-medium">{c.name}</p>
+          <p class="text-xs text-slate-500">{c.code} · {c.level} · {c.email or ''}</p>
+          <div class="mt-2 flex flex-wrap gap-2">
+            <form method="post" action="/admin/churches/{c.id}/approve"><button class="text-xs px-3 py-1.5 rounded-lg bg-teal-600 text-white">Approve</button></form>
+            <form method="post" action="/admin/churches/{c.id}/reject"><button class="text-xs px-3 py-1.5 rounded-lg bg-red-100 text-red-700">Reject</button></form>
+            <form method="post" action="/admin/churches/{c.id}/disapprove"><button class="text-xs px-3 py-1.5 rounded-lg bg-red-600 text-white">Disapprove</button></form>
+          </div>
+        </div>"""
+    if not pending:
+        pending_html = '<p class="text-sm text-slate-400">None pending</p>'
+
+    church_rows = ""
+    for c in churches[:50]:
+        church_rows += f"""
+        <li class="flex flex-wrap items-center justify-between gap-2 p-2 rounded-lg hover:bg-slate-50 text-sm border-b border-slate-100">
+          <div>
+            <span class="font-medium">{c.name}</span>
+            <span class="text-xs text-slate-500 ml-2"><code>{c.code}</code> · {getattr(c, 'approval_status', '')}</span>
+          </div>
+          <div class="flex gap-2">
+            <a href="/admin/churches/{c.id}/dashboard" class="text-xs px-2 py-1 rounded bg-blue-700 text-white">Dashboard</a>
+            <a href="/admin/churches/{c.id}" class="text-xs px-2 py-1 rounded bg-slate-800 text-white">Edit</a>
+          </div>
+        </li>"""
+    if not church_rows:
+        church_rows = '<li class="text-slate-400 text-sm p-2">No churches yet</li>'
+
+    sub_html = ""
     for u in subadmins:
-        for attr in ("can_create_churches", "can_approve_members", "can_enter_stats", "can_see_member_count"):
-            if not hasattr(u, attr):
-                try:
-                    setattr(u, attr, False)
-                except Exception:
-                    pass
+        cc = "checked" if getattr(u, "can_create_churches", False) else ""
+        ca = "checked" if getattr(u, "can_approve_members", False) else ""
+        cs = "checked" if getattr(u, "can_enter_stats", False) else ""
+        act = (
+            f'<form method="post" action="/admin/users/{u.id}/deactivate"><button class="text-xs text-red-600">Deactivate</button></form>'
+            if getattr(u, "is_active", True)
+            else f'<form method="post" action="/admin/users/{u.id}/activate"><button class="text-xs text-teal-600">Activate</button></form>'
+        )
+        sub_html += f"""
+        <li class="p-3 rounded-xl bg-slate-50 border border-slate-100 text-sm mb-3">
+          <p class="font-medium">{u.full_name}</p>
+          <p class="text-xs text-slate-500 mb-2">{u.email}</p>
+          <form method="post" action="/admin/users/{u.id}/permissions" class="flex flex-wrap gap-3 items-center text-xs">
+            <label class="flex items-center gap-1"><input type="checkbox" name="can_create_churches" value="yes" {cc}> Create churches</label>
+            <label class="flex items-center gap-1"><input type="checkbox" name="can_approve_members" value="yes" {ca}> Approve members</label>
+            <label class="flex items-center gap-1"><input type="checkbox" name="can_enter_stats" value="yes" {cs}> Attendance</label>
+            <button class="px-3 py-1 rounded-lg bg-slate-900 text-white">Save</button>
+          </form>
+          <div class="mt-2">{act}</div>
+        </li>"""
+    if not sub_html:
+        sub_html = '<p class="text-sm text-slate-400">No sub-admins yet</p>'
+
+    note_html = f'<div class="mb-4 p-3 bg-amber-50 text-amber-800 text-sm rounded-lg">{note}</div>' if note else ""
+
+    body = f"""
+    <h1 class="text-2xl font-bold mb-1">General Admin</h1>
+    <p class="text-sm text-slate-500 mb-6">Approve churches, manage sub-admins, open dashboards</p>
+    {note_html}
+    <p class="mb-6"><a href="/admin/globals" class="text-sm font-semibold text-blue-700 hover:underline">→ Manage all Global churches</a></p>
+    <div class="grid lg:grid-cols-2 gap-6">
+      <div class="space-y-6">
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+          <h2 class="font-semibold mb-4">Pending registrations ({len(pending)})</h2>
+          {pending_html}
+        </div>
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+          <h2 class="font-semibold mb-4">All churches ({len(churches)})</h2>
+          <ul class="max-h-96 overflow-y-auto">{church_rows}</ul>
+        </div>
+      </div>
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+        <h2 class="font-semibold mb-2">Sub-admin permissions</h2>
+        <p class="text-xs text-slate-500 mb-4">Grant create-church / approve-members rights.</p>
+        <ul class="max-h-[32rem] overflow-y-auto">{sub_html}</ul>
+      </div>
+    </div>
+    """
+    return _admin_shell("General Admin – Churchgate", body, getattr(user, "email", ""))
+
+
+@router.get("/globals", response_class=HTMLResponse)
+async def list_global_churches(
+    request: Request,
+    user: User = Depends(require_roles(UserRole.general_admin)),
+    session: Session = Depends(get_session),
+):
+    from app.models import ChurchLevel
     try:
-        return templates.TemplateResponse("admin/dashboard.html", {
-            "request": request,
-            "user": user,
-            "churches": churches,
-            "pending": pending,
-            "users": users,
-            "subadmins": subadmins,
-            "error_note": error_note,
-        })
-    except Exception as e:
-        rows = "".join(
-            f"<li>{getattr(c,'name','?')} ({getattr(c,'code','')}) – {getattr(c,'approval_status','')}</li>"
-            for c in churches[:40]
-        )
-        return HTMLResponse(
-            f"""<!DOCTYPE html><html><body style="font-family:system-ui;max-width:40rem;margin:2rem auto;padding:1rem">
-            <h1>General Admin</h1>
-            <p>{getattr(user,'email','')}</p>
-            <p style="color:#b91c1c">UI error: {e}</p>
-            <p><a href="/auth/logout">Sign out</a> · <a href="/admin/globals">Globals</a></p>
-            <p>Churches: {len(churches)} · Pending: {len(pending)}</p>
-            <ul>{rows}</ul></body></html>"""
-        )
+        globals_ = list(session.exec(
+            select(ChurchUnit).where(ChurchUnit.level == ChurchLevel.global_church)
+        ).all())
+    except Exception:
+        all_c = list(session.exec(select(ChurchUnit)).all())
+        globals_ = [
+            c for c in all_c
+            if str(getattr(c.level, "value", c.level)).lower() in ("global", "global_church")
+        ]
+    rows = ""
+    for g in globals_:
+        st = getattr(g, "approval_status", "")
+        rows += f"""
+        <div class="bg-white rounded-2xl border p-5 mb-4 flex flex-wrap justify-between gap-3">
+          <div>
+            <p class="font-semibold text-lg">{g.name}</p>
+            <p class="text-xs text-slate-500"><code>{g.code}</code> · {st} · {g.resident_pastor or ''} · {g.email or ''}</p>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            <a href="/admin/churches/{g.id}/dashboard" class="px-3 py-1.5 rounded-lg bg-blue-700 text-white text-xs font-semibold">View dashboard</a>
+            <a href="/admin/churches/{g.id}" class="px-3 py-1.5 rounded-lg border text-xs">Edit</a>
+            <form method="post" action="/admin/churches/{g.id}/approve"><button class="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs">Approve</button></form>
+            <form method="post" action="/admin/churches/{g.id}/disapprove" onsubmit="return confirm('Disapprove and deactivate all branches?')">
+              <button class="px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs">Disapprove</button>
+            </form>
+          </div>
+        </div>"""
+    if not rows:
+        rows = '<p class="text-slate-500">No global churches registered yet.</p>'
+    body = f"""
+    <h1 class="text-2xl font-bold mb-2">Global churches</h1>
+    <p class="text-sm text-slate-500 mb-6"><a href="/admin/" class="text-blue-700">← Admin home</a></p>
+    {rows}
+    """
+    return _admin_shell("Global Churches – Admin", body, getattr(user, "email", ""))
 
 
 @router.get("/churches/{church_id}", response_class=HTMLResponse)
@@ -85,22 +212,35 @@ async def view_church(
     church_id: int,
     request: Request,
     user: User = Depends(require_roles(UserRole.general_admin)),
-    session: Session = Depends(get_session)
+    session: Session = Depends(get_session),
 ):
     church = session.get(ChurchUnit, church_id)
     if not church:
         raise HTTPException(404, "Church not found")
-    members = session.exec(select(ChurchMember).where(ChurchMember.church_id == church_id).limit(100)).all()
-    stats = session.exec(
-        select(WeeklyStat).where(WeeklyStat.church_id == church_id)
-        .order_by(WeeklyStat.week_start.desc()).limit(12)
-    ).all()
-    children = session.exec(select(ChurchUnit).where(ChurchUnit.parent_id == church_id)).all()
-    admins = session.exec(select(User).where(User.church_id == church_id)).all()
-    return templates.TemplateResponse("admin/church_edit.html", {
-        "request": request, "user": user, "church": church,
-        "members": members, "stats": stats, "children": children, "admins": admins
-    })
+    body = f"""
+    <h1 class="text-xl font-bold mb-4">Edit church</h1>
+    <form method="post" action="/admin/churches/{church.id}/edit" class="bg-white rounded-2xl border p-6 space-y-3 max-w-lg">
+      <input name="name" value="{church.name or ''}" class="w-full px-3 py-2 border rounded-lg" placeholder="Name">
+      <input name="resident_pastor" value="{church.resident_pastor or ''}" class="w-full px-3 py-2 border rounded-lg" placeholder="Pastor">
+      <input name="address" value="{church.address or ''}" class="w-full px-3 py-2 border rounded-lg" placeholder="Address">
+      <input name="phone" value="{church.phone or ''}" class="w-full px-3 py-2 border rounded-lg" placeholder="Phone">
+      <input name="email" value="{church.email or ''}" class="w-full px-3 py-2 border rounded-lg" placeholder="Email">
+      <textarea name="doctrine" class="w-full px-3 py-2 border rounded-lg" rows="2" placeholder="Doctrine">{church.doctrine or ''}</textarea>
+      <input name="activity_days" value="{church.activity_days or ''}" class="w-full px-3 py-2 border rounded-lg" placeholder="Activity days">
+      <select name="approval_status" class="w-full px-3 py-2 border rounded-lg">
+        <option value="pending" {"selected" if church.approval_status=="pending" else ""}>pending</option>
+        <option value="approved" {"selected" if church.approval_status=="approved" else ""}>approved</option>
+        <option value="rejected" {"selected" if church.approval_status=="rejected" else ""}>rejected</option>
+      </select>
+      <select name="is_active" class="w-full px-3 py-2 border rounded-lg">
+        <option value="yes" {"selected" if church.is_active else ""}>Active</option>
+        <option value="no" {"selected" if not church.is_active else ""}>Inactive</option>
+      </select>
+      <button class="w-full py-2.5 rounded-lg bg-slate-900 text-white font-semibold">Save</button>
+    </form>
+    <p class="mt-4 text-sm"><a href="/admin/" class="text-blue-700">← Back</a></p>
+    """
+    return _admin_shell(f"Edit {church.name}", body, getattr(user, "email", ""))
 
 
 @router.post("/churches/{church_id}/edit")
@@ -116,7 +256,7 @@ async def edit_church(
     approval_status: str = Form("approved"),
     is_active: str = Form("yes"),
     user: User = Depends(require_roles(UserRole.general_admin)),
-    session: Session = Depends(get_session)
+    session: Session = Depends(get_session),
 ):
     church = session.get(ChurchUnit, church_id)
     if not church:
@@ -139,23 +279,14 @@ async def edit_church(
 async def approve_church(
     church_id: int,
     user: User = Depends(require_roles(UserRole.general_admin)),
-    session: Session = Depends(get_session)
+    session: Session = Depends(get_session),
 ):
     church = session.get(ChurchUnit, church_id)
     if not church:
         raise HTTPException(404, "Church not found")
     church.approval_status = "approved"
     church.is_active = True
-    try:
-        if str(getattr(church.level, "value", church.level)) in ("global", "global_church") and not church.global_code:
-            church.global_code = church.code
-    except Exception:
-        pass
     session.add(church)
-    admin = session.exec(
-        select(User).where(User.church_id == church_id)
-    ).first()
-    # activate church admins for this unit
     for admin in session.exec(select(User).where(User.church_id == church_id)).all():
         if _safe_role(admin) in ("church_admin", "data_officer"):
             admin.is_active = True
@@ -173,7 +304,7 @@ async def approve_church(
 async def reject_church(
     church_id: int,
     user: User = Depends(require_roles(UserRole.general_admin)),
-    session: Session = Depends(get_session)
+    session: Session = Depends(get_session),
 ):
     church = session.get(ChurchUnit, church_id)
     if not church:
@@ -188,9 +319,8 @@ async def reject_church(
 async def disapprove_church(
     church_id: int,
     user: User = Depends(require_roles(UserRole.general_admin)),
-    session: Session = Depends(get_session)
+    session: Session = Depends(get_session),
 ):
-    """Disapprove Global (or any unit) and cascade to all branches + logins."""
     church = session.get(ChurchUnit, church_id)
     if not church:
         raise HTTPException(404, "Church not found")
@@ -222,13 +352,11 @@ async def set_subadmin_permissions(
     can_approve_members: str = Form(""),
     can_enter_stats: str = Form(""),
     user: User = Depends(require_roles(UserRole.general_admin)),
-    session: Session = Depends(get_session)
+    session: Session = Depends(get_session),
 ):
     target = session.get(User, user_id)
-    if not target:
-        raise HTTPException(404, "User not found")
-    if _safe_role(target) == "general_admin":
-        raise HTTPException(400, "Cannot change general admin")
+    if not target or _safe_role(target) == "general_admin":
+        raise HTTPException(400, "Invalid user")
     try:
         target.can_create_churches = can_create_churches == "yes"
         target.can_approve_members = can_approve_members == "yes"
@@ -244,7 +372,7 @@ async def set_subadmin_permissions(
 async def deactivate(
     user_id: int,
     user: User = Depends(require_roles(UserRole.general_admin)),
-    session: Session = Depends(get_session)
+    session: Session = Depends(get_session),
 ):
     target = session.get(User, user_id)
     if not target or _safe_role(target) == "general_admin":
@@ -259,7 +387,7 @@ async def deactivate(
 async def activate(
     user_id: int,
     user: User = Depends(require_roles(UserRole.general_admin)),
-    session: Session = Depends(get_session)
+    session: Session = Depends(get_session),
 ):
     target = session.get(User, user_id)
     if not target:
@@ -270,38 +398,17 @@ async def activate(
     return RedirectResponse("/admin/", status_code=303)
 
 
-@router.get("/globals", response_class=HTMLResponse)
-async def list_global_churches(
-    request: Request,
-    user: User = Depends(require_roles(UserRole.general_admin)),
-    session: Session = Depends(get_session)
-):
-    from app.models import ChurchLevel
-    try:
-        globals_ = list(session.exec(
-            select(ChurchUnit).where(ChurchUnit.level == ChurchLevel.global_church)
-            .order_by(ChurchUnit.created_at.desc())
-        ).all())
-    except Exception:
-        # fallback: filter in python
-        all_c = list(session.exec(select(ChurchUnit)).all())
-        globals_ = [c for c in all_c if str(getattr(c.level, "value", c.level)).lower() in ("global", "global_church")]
-    return templates.TemplateResponse("admin/globals.html", {
-        "request": request, "user": user, "globals": globals_
-    })
-
-
 @router.get("/churches/{church_id}/dashboard", response_class=HTMLResponse)
 async def admin_view_church_dashboard(
     church_id: int,
     request: Request,
     user: User = Depends(require_roles(UserRole.general_admin)),
-    session: Session = Depends(get_session)
+    session: Session = Depends(get_session),
 ):
+    """Simple stats view without fragile Jinja charts."""
     church = session.get(ChurchUnit, church_id)
     if not church:
         raise HTTPException(404, "Church not found")
-
     ids = [church.id]
     queue = [church.id]
     while queue:
@@ -309,99 +416,34 @@ async def admin_view_church_dashboard(
         for k in session.exec(select(ChurchUnit).where(ChurchUnit.parent_id == pid)).all():
             ids.append(k.id)
             queue.append(k.id)
-
+    try:
+        members_count = len(list(session.exec(
+            select(ChurchMember).where(
+                ChurchMember.church_id.in_(ids),
+                ChurchMember.approval_status == "approved",
+            )
+        ).all()))
+    except Exception:
+        members_count = 0
     children = list(session.exec(select(ChurchUnit).where(ChurchUnit.parent_id == church.id)).all())
-    members_list = list(session.exec(
-        select(ChurchMember).where(
-            ChurchMember.church_id.in_(ids),
-            ChurchMember.approval_status == "approved"
-        )
-    ).all())
-    members_count = len(members_list)
-
-    def count_sex_age(sex, ages):
-        return sum(1 for m in members_list if (m.sex or "").lower() in sex and (m.age_category or "") in ages)
-
-    demo = {
-        "men": count_sex_age(["brother", "male"], ["adult", "campus"]),
-        "women": count_sex_age(["sister", "female"], ["adult", "campus"]),
-        "youth_boys": count_sex_age(["brother", "male"], ["youth"]),
-        "youth_girls": count_sex_age(["sister", "female"], ["youth"]),
-        "ya_boys": count_sex_age(["brother", "male"], ["campus"]),
-        "ya_girls": count_sex_age(["sister", "female"], ["campus"]),
-        "children_boys": count_sex_age(["brother", "male"], ["child"]),
-        "children_girls": count_sex_age(["sister", "female"], ["child"]),
-        "newcomers_men": 0, "newcomers_women": 0, "newcomers_children": 0,
-        "converts_men": 0, "converts_women": 0, "converts_children": 0,
-    }
-
-    all_stats = list(session.exec(select(WeeklyStat).where(WeeklyStat.church_id.in_(ids))).all())
-    by_week = {}
-    for s in all_stats:
-        key = s.week_start.isoformat()
-        if key not in by_week:
-            by_week[key] = {
-                "week_start": s.week_start,
-                "adult_male": 0, "adult_female": 0, "children_boys": 0, "children_girls": 0,
-                "youth_male": 0, "youth_female": 0, "offering": 0.0, "tithe": 0.0, "donation": 0.0,
-            }
-        b = by_week[key]
-        b["adult_male"] += s.adult_male or 0
-        b["adult_female"] += s.adult_female or 0
-        b["children_boys"] += s.children_boys or 0
-        b["children_girls"] += s.children_girls or 0
-        b["youth_male"] += s.youth_male or 0
-        b["youth_female"] += s.youth_female or 0
-        b["offering"] += float(s.offering or 0)
-        b["tithe"] += float(s.tithe or 0)
-        b["donation"] += float(s.donation or 0)
-        demo["newcomers_men"] += (s.newcomers or 0) // 2
-        demo["newcomers_women"] += (s.newcomers or 0) - (s.newcomers or 0) // 2
-        demo["converts_men"] += (s.converts or 0) // 2
-        demo["converts_women"] += (s.converts or 0) - (s.converts or 0) // 2
-
-    class Agg:
-        def __init__(self, d):
-            self.__dict__.update(d)
-
-    ordered = sorted(by_week.values(), key=lambda x: x["week_start"])[-12:]
-    stats = [Agg(d) for d in ordered]
-    chart_labels, chart_attendance, chart_offering, chart_tithe, chart_donation = [], [], [], [], []
-    total_offering = total_tithe = 0.0
-    latest_attendance = 0
-    for s in stats:
-        att = s.adult_male + s.adult_female + s.children_boys + s.children_girls + s.youth_male + s.youth_female
-        chart_labels.append(str(s.week_start))
-        chart_attendance.append(att)
-        chart_offering.append(float(s.offering))
-        chart_tithe.append(float(s.tithe))
-        chart_donation.append(float(s.donation))
-        total_offering += float(s.offering)
-        total_tithe += float(s.tithe)
-    if chart_attendance:
-        latest_attendance = chart_attendance[-1]
-
-    map_markers = []
-    lv = str(getattr(church.level, "value", church.level)).lower()
-    is_global_view = lv in ("global", "global_church")
-    if is_global_view:
-        for uid in ids:
-            u = session.get(ChurchUnit, uid)
-            if u and u.latitude is not None and u.longitude is not None:
-                map_markers.append({
-                    "name": u.name, "code": u.code,
-                    "level": str(getattr(u.level, "value", u.level)),
-                    "lat": float(u.latitude), "lng": float(u.longitude),
-                    "address": u.address or "",
-                })
-
-    return templates.TemplateResponse("church/dashboard.html", {
-        "request": request, "user": user, "church": church,
-        "children": children, "stats": stats, "members_count": members_count,
-        "chart_labels": chart_labels, "chart_attendance": chart_attendance,
-        "chart_offering": chart_offering, "chart_tithe": chart_tithe,
-        "chart_donation": chart_donation, "total_offering": total_offering,
-        "total_tithe": total_tithe, "latest_attendance": latest_attendance,
-        "is_admin_overview": False, "demo": demo,
-        "admin_viewing": True, "map_markers": map_markers, "is_global_view": is_global_view,
-    })
+    child_list = "".join(
+        f"<li class='py-1 text-sm'>{ch.name} <code class='text-xs bg-slate-100 px-1'>{ch.code}</code></li>"
+        for ch in children
+    ) or "<li class='text-slate-400 text-sm'>No sub-churches</li>"
+    body = f"""
+    <h1 class="text-2xl font-bold mb-1">{church.name}</h1>
+    <p class="text-sm text-slate-500 mb-6"><code>{church.code}</code> · {getattr(church.level, 'value', church.level)} · {church.approval_status}</p>
+    <div class="grid sm:grid-cols-3 gap-4 mb-8">
+      <div class="bg-white rounded-xl border p-5"><p class="text-xs text-slate-500 uppercase">Members (tree)</p><p class="text-3xl font-bold">{members_count}</p></div>
+      <div class="bg-white rounded-xl border p-5"><p class="text-xs text-slate-500 uppercase">Sub-units</p><p class="text-3xl font-bold">{len(children)}</p></div>
+      <div class="bg-white rounded-xl border p-5"><p class="text-xs text-slate-500 uppercase">Status</p><p class="text-xl font-bold capitalize">{church.approval_status}</p></div>
+    </div>
+    <div class="bg-white rounded-xl border p-5 mb-6">
+      <h2 class="font-semibold mb-2">Sub-churches</h2>
+      <ul>{child_list}</ul>
+    </div>
+    <p class="text-sm"><a href="/admin/" class="text-blue-700">← Admin home</a> ·
+       <a href="/admin/globals" class="text-blue-700">Globals</a> ·
+       <a href="/admin/churches/{church.id}" class="text-blue-700">Edit</a></p>
+    """
+    return _admin_shell(f"Dashboard – {church.name}", body, getattr(user, "email", ""))

@@ -141,12 +141,12 @@
 {% block scripts %}
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-const labels = {{ chart_labels|default([])|tojson }};
-const att = {{ chart_attendance|default([])|tojson }};
-const off = {{ chart_offering|default([])|tojson }};
-const tithe = {{ chart_tithe|default([])|tojson }};
-const don = {{ chart_donation|default([])|tojson }};
-const demo = {{ demo|default({})|tojson }};
+const labels = {{ (chart_labels if chart_labels is defined else [])|tojson }};
+const att = {{ (chart_attendance if chart_attendance is defined else [])|tojson }};
+const off = {{ (chart_offering if chart_offering is defined else [])|tojson }};
+const tithe = {{ (chart_tithe if chart_tithe is defined else [])|tojson }};
+const don = {{ (chart_donation if chart_donation is defined else [])|tojson }};
+const demo = {{ (demo if demo is defined else {})|tojson }};
 
 if (demo && demo.men !== undefined && document.getElementById('pieMembers')) {
   new Chart(document.getElementById('pieMembers'), {
@@ -195,7 +195,7 @@ if (labels && labels.length && document.getElementById('finChart')) {
 
 {% if is_global_view %}
 (function() {
-  const markers = {{ map_markers|default([])|tojson }};
+  const markers = {{ (map_markers if map_markers is defined else [])|tojson }};
   const el = document.getElementById('churchMap');
   if (!el || typeof L === 'undefined') return;
   const map = L.map('churchMap').setView([20, 0], 2);
