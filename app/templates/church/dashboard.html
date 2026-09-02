@@ -147,78 +147,68 @@
 {% block scripts %}
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-{% if is_global_view %}
 <script>
 (function(){
-  var markers = {{ (map_markers if map_markers is defined else [])|tojson }};
-  var el = document.getElementById('churchMap');
-  if (!el || typeof L === 'undefined') return;
-  var map = L.map('churchMap').setView([20,0], 2);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:12,attribution:'&copy; OpenStreetMap'}).addTo(map);
-  var bounds = [];
-  (markers||[]).forEach(function(m){
-    var mk = L.marker([m.lat,m.lng]).addTo(map);
-    mk.bindPopup('<strong>'+m.name+'</strong><br>'+(m.level||'')+'<br>'+(m.country||'')+' · '+(m.state||'')+'<br>'+(m.address||''));
-    bounds.push([m.lat,m.lng]);
-  });
-  if (bounds.length) map.fitBounds(bounds,{padding:[30,30],maxZoom:8});
-  setTimeout(function(){ map.invalidateSize(); }, 200);
-})();
-</script>
-{% endif %}
+  const labels = {{ (chart_labels if chart_labels is defined else [])|tojson }};
+  const att = {{ (chart_attendance if chart_attendance is defined else [])|tojson }};
+  const off = {{ (chart_offering if chart_offering is defined else [])|tojson }};
+  const tithe = {{ (chart_tithe if chart_tithe is defined else [])|tojson }};
+  const don = {{ (chart_donation if chart_donation is defined else [])|tojson }};
+  const demo = {{ (demo if demo is defined else {})|tojson }};
 
-{% block scripts %}
-<script>
-const labels = {{ chart_labels|tojson }};
-const att = {{ chart_attendance|tojson }};
-const off = {{ chart_offering|tojson }};
-const tithe = {{ chart_tithe|tojson }};
-const don = {{ chart_donation|tojson }};
-const demo = {{ demo|tojson if demo else '{}' }};
-
-if (demo && demo.men !== undefined && document.getElementById('pieMembers')) {
-  new Chart(document.getElementById('pieMembers'), {
-    type: 'pie',
-    data: {
-      labels: ['Men', 'Women', 'Youth boys', 'Youth girls', 'YA men', 'YA women', 'Boys', 'Girls'],
-      datasets: [{
-        data: [demo.men, demo.women, demo.youth_boys, demo.youth_girls, demo.ya_boys, demo.ya_girls, demo.children_boys, demo.children_girls],
-        backgroundColor: ['#3b82f6','#ec4899','#60a5fa','#f9a8d4','#1d4ed8','#db2777','#93c5fd','#fbcfe8']
-      }]
-    },
-    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#e2e8f0', boxWidth: 12 } } } }
-  });
-}
-if (demo && document.getElementById('barDemo')) {
-  new Chart(document.getElementById('barDemo'), {
-    type: 'bar',
-    data: {
-      labels: ['Men', 'Women', 'Youth ♂', 'Youth ♀', 'YA ♂', 'YA ♀', 'Child ♂', 'Child ♀'],
-      datasets: [{ label: 'Count', data: [demo.men, demo.women, demo.youth_boys, demo.youth_girls, demo.ya_boys, demo.ya_girls, demo.children_boys, demo.children_girls], backgroundColor: '#fbbf24', borderRadius: 6 }]
-    },
-    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: '#cbd5e1' } }, y: { ticks: { color: '#cbd5e1' }, grid: { color: 'rgba(255,255,255,0.08)' } } } }
-  });
-}
-if (labels && labels.length && document.getElementById('attChart')) {
-  new Chart(document.getElementById('attChart'), {
-    type: 'bar',
-    data: { labels, datasets: [{ label: 'Attendance', data: att, backgroundColor: '#60a5fa', borderRadius: 6 }] },
-    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: '#cbd5e1' } }, y: { ticks: { color: '#cbd5e1' }, grid: { color: 'rgba(255,255,255,0.08)' } } } }
-  });
-}
-if (labels && labels.length && document.getElementById('finChart')) {
-  new Chart(document.getElementById('finChart'), {
-    type: 'line',
-    data: {
-      labels,
-      datasets: [
+  if (labels && labels.length && document.getElementById('attChart')) {
+    new Chart(document.getElementById('attChart'), {
+      type: 'bar',
+      data: { labels, datasets: [{ label: 'Attendance', data: att, backgroundColor: 'rgba(147,197,253,0.7)' }] },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#e2e8f0' } } },
+        scales: { x: { ticks: { color: '#cbd5e1' } }, y: { ticks: { color: '#cbd5e1' }, grid: { color: 'rgba(255,255,255,0.08)' } } } }
+    });
+  }
+  if (labels && labels.length && document.getElementById('finChart')) {
+    new Chart(document.getElementById('finChart'), {
+      type: 'line',
+      data: { labels, datasets: [
         { label: 'Offering', data: off, borderColor: '#93c5fd', tension: 0.3 },
         { label: 'Tithe', data: tithe, borderColor: '#fbbf24', tension: 0.3 },
         { label: 'Donation', data: don, borderColor: '#34d399', tension: 0.3 }
-      ]
-    },
-    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#e2e8f0' } } }, scales: { x: { ticks: { color: '#cbd5e1' } }, y: { ticks: { color: '#cbd5e1' }, grid: { color: 'rgba(255,255,255,0.08)' } } } }
-  });
-}
+      ]},
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#e2e8f0' } } },
+        scales: { x: { ticks: { color: '#cbd5e1' } }, y: { ticks: { color: '#cbd5e1' }, grid: { color: 'rgba(255,255,255,0.08)' } } } }
+    });
+  }
+  if (demo && document.getElementById('demoChart')) {
+    new Chart(document.getElementById('demoChart'), {
+      type: 'pie',
+      data: {
+        labels: ['Men','Women','Youth boys','Youth girls','YA boys','YA girls','Boys','Girls'],
+        datasets: [{ data: [
+          demo.men||0, demo.women||0, demo.youth_boys||0, demo.youth_girls||0,
+          demo.ya_boys||0, demo.ya_girls||0, demo.children_boys||0, demo.children_girls||0
+        ], backgroundColor: ['#3b82f6','#ec4899','#60a5fa','#f472b6','#2563eb','#db2777','#93c5fd','#f9a8d4'] }]
+      },
+      options: { responsive: true, plugins: { legend: { position: 'bottom', labels: { color: '#e2e8f0' } } } }
+    });
+  }
+
+  {% if is_global_view %}
+  var markers = {{ (map_markers if map_markers is defined else [])|tojson }};
+  var el = document.getElementById('churchMap');
+  if (el && typeof L !== 'undefined') {
+    var map = L.map('churchMap').setView([20,0], 2);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 12, attribution: '&copy; OpenStreetMap'
+    }).addTo(map);
+    var bounds = [];
+    (markers || []).forEach(function(m) {
+      var mk = L.marker([m.lat, m.lng]).addTo(map);
+      mk.bindPopup('<strong>'+m.name+'</strong><br>'+(m.level||'')+'<br>'+(m.country||'')+' · '+(m.state||''));
+      bounds.push([m.lat, m.lng]);
+    });
+    if (bounds.length) map.fitBounds(bounds, { padding: [30,30], maxZoom: 8 });
+    setTimeout(function(){ map.invalidateSize(); }, 250);
+  }
+  {% endif %}
+})();
 </script>
 {% endblock %}
+

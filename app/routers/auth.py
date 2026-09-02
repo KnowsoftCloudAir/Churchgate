@@ -43,14 +43,14 @@ async def login(
         }, status_code=400)
 
     # Church admins must belong to an approved church
-    if user.role == UserRole.church_admin and user.church_id:
+    if role_val(user.role) == "church_admin" and user.church_id:
         church = session.get(ChurchUnit, user.church_id)
         if church and church.approval_status != "approved":
             return templates.TemplateResponse("auth/login.html", {
                 "request": request, "error": "Your church is still pending approval by Knowsoft Admin."
             }, status_code=400)
     # Members need approved membership for full login
-    if user.role == UserRole.member:
+    if role_val(user.role) == "member":
         m = session.get(ChurchMember, user.member_id) if user.member_id else None
         if not m:
             m = session.exec(select(ChurchMember).where(ChurchMember.email == user.email)).first()
@@ -67,15 +67,22 @@ async def login(
     user.last_login = datetime.utcnow()
     session.add(user)
     session.commit()
-    # Single login door — route by role (admin never advertised publicly)
-    if user.role == UserRole.general_admin:
+    # Route by role — members without dashboard grant go to portal only
+    rv = role_val(user.role)
+    if rv == "general_admin":
         dest = "/admin/"
-    elif user.role == UserRole.member:
-        dest = "/member/portal"
+    elif rv == "member":
+        dest = "/dashboard" if getattr(user, "can_view_church_dashboard", False) else "/member/portal"
     else:
         dest = "/dashboard"
     resp = RedirectResponse(dest, status_code=303)
-    resp.set_cookie("access_token", token, httponly=True, max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60, samesite="lax", path="/")
+    resp.set_cookie(
+        "access_token", token,
+        httponly=True,
+        max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        samesite="lax",
+        path="/",
+    )
     return resp
 
 @router.get("/register-church", response_class=HTMLResponse)

@@ -6,7 +6,7 @@ from sqlmodel import Session, select
 
 from app.database import get_session
 from app.models import User, UserRole, ChurchUnit, ChurchMember, WeeklyStat
-from app.auth import require_roles, get_password_hash
+from app.auth import require_roles, get_password_hash, role_val
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent.parent / "templates"))
@@ -20,7 +20,7 @@ async def admin_home(
     churches = session.exec(select(ChurchUnit).order_by(ChurchUnit.created_at.desc())).all()
     users = session.exec(select(User).order_by(User.created_at.desc()).limit(100)).all()
     pending = [c for c in churches if c.approval_status == "pending"]
-    subadmins = [u for u in users if u.role == UserRole.church_admin]
+    subadmins = [u for u in users if role_val(u.role) == "church_admin"]
     return templates.TemplateResponse("admin/dashboard.html", {
         "request": request, "user": user,
         "churches": churches, "pending": pending, "users": users, "subadmins": subadmins
@@ -240,4 +240,25 @@ async def admin_church_dashboard(
         "total_offering": 0, "total_tithe": 0, "latest_attendance": 0,
         "is_admin_overview": False, "demo": demo, "admin_viewing": True,
         "map_markers": map_markers, "is_global_view": is_global_view, "state_summary": state_summary,
+    })
+
+
+@router.get("/globals", response_class=HTMLResponse)
+async def list_global_churches(
+    request: Request,
+    user: User = Depends(require_roles(UserRole.general_admin)),
+    session: Session = Depends(get_session),
+):
+    from app.models import ChurchLevel
+    try:
+        globals_ = list(session.exec(
+            select(ChurchUnit).where(ChurchUnit.level == ChurchLevel.global_church)
+        ).all())
+    except Exception:
+        globals_ = [
+            c for c in session.exec(select(ChurchUnit)).all()
+            if str(getattr(c.level, "value", c.level)).lower() in ("global", "global_church")
+        ]
+    return templates.TemplateResponse("admin/globals.html", {
+        "request": request, "user": user, "globals": globals_,
     })
