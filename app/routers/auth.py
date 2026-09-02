@@ -33,10 +33,10 @@ async def login_page(request: Request, user: Optional[User] = Depends(get_curren
     if user:
         rv = role_val(user.role)
         if rv == "general_admin":
-            return RedirectResponse("/admin/", status_code=303)
+            return RedirectResponse("/admin-panel", status_code=303)
         if rv == "member" and not getattr(user, "can_view_church_dashboard", False):
             return RedirectResponse("/member/portal", status_code=303)
-        return RedirectResponse("/dashboard", status_code=303)
+        return RedirectResponse("/my-dashboard", status_code=303)
     return templates.TemplateResponse("auth/login.html", {"request": request})
 
 @router.post("/login")
@@ -84,15 +84,15 @@ async def login(
     # Single login door — route by role
     rv = role_val(user.role)
     if rv == "general_admin":
-        dest = "/admin/"
+        dest = "/admin-panel"
     elif rv == "member":
         from app.models import ChurchMember
         m = session.get(ChurchMember, user.member_id) if user.member_id else None
         if not m:
             m = session.exec(select(ChurchMember).where(ChurchMember.email == user.email)).first()
-        dest = "/dashboard" if (m and (str(m.status or "")).lower() == "pastor") else "/member/portal"
+        dest = "/my-dashboard" if (m and (str(m.status or "")).lower() == "pastor") else "/member/portal"
     else:
-        dest = "/dashboard"
+        dest = "/my-dashboard"
     resp = RedirectResponse(dest, status_code=303)
     set_auth_cookie(resp, token)
     return resp
