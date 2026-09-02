@@ -10,7 +10,7 @@ import string
 
 from app.database import get_session
 from app.models import User, UserRole, ChurchUnit, ChurchLevel, ApprovalStatus, ChurchMember
-from app.auth import (
+from app.auth import set_auth_cookie, clear_auth_cookie, role_val, (
     verify_password, get_password_hash, create_access_token,
     get_current_user, ACCESS_TOKEN_EXPIRE_MINUTES
 )
@@ -70,19 +70,20 @@ async def login(
     user.last_login = datetime.utcnow()
     session.add(user)
     session.commit()
-    # Single login door — route by role (admin never advertised publicly)
-    if user.role == UserRole.general_admin:
+    # Single login door — route by role
+    rv = role_val(user.role)
+    if rv == "general_admin":
         dest = "/admin/"
-    elif user.role == UserRole.member:
+    elif rv == "member":
         from app.models import ChurchMember
         m = session.get(ChurchMember, user.member_id) if user.member_id else None
         if not m:
             m = session.exec(select(ChurchMember).where(ChurchMember.email == user.email)).first()
-        dest = "/dashboard" if (m and (m.status or "").lower() == "pastor") else "/member/portal"
+        dest = "/dashboard" if (m and (str(m.status or "")).lower() == "pastor") else "/member/portal"
     else:
         dest = "/dashboard"
     resp = RedirectResponse(dest, status_code=303)
-    resp.set_cookie("access_token", token, httponly=True, max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60, samesite="lax")
+    set_auth_cookie(resp, token, request)
     return resp
 
 @router.get("/register-church", response_class=HTMLResponse)
@@ -250,5 +251,5 @@ async def register_church(
 @router.get("/logout")
 async def logout():
     resp = RedirectResponse("/auth/login", status_code=303)
-    resp.delete_cookie("access_token")
+    clear_auth_cookie(resp)
     return resp

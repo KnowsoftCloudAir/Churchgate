@@ -1,4 +1,5 @@
-from fastapi import FastAPI, Request, Depends, Form
+from fastapi import FastAPI, Request, Depends, Form, HTTPException
+from fastapi.responses import JSONResponse
 from typing import Optional
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -9,7 +10,7 @@ from pathlib import Path
 
 from app.database import create_db_and_tables, get_session, engine
 from app.models import User, UserRole
-from app.auth import get_password_hash, get_current_user, verify_password, create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES
+from app.auth import get_password_hash, get_current_user, verify_password, create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES, set_auth_cookie, role_val
 from app.routers import auth, admin, church, district, members, programs, projects
 
 @asynccontextmanager
@@ -49,6 +50,22 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan
 )
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    """Turn 303 auth redirects into real redirects; keep JSON for true API errors."""
+    if exc.status_code in (303, 302) and exc.headers and "Location" in exc.headers:
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url=exc.headers["Location"], status_code=303)
+    if exc.status_code == 401:
+        accept = (request.headers.get("accept") or "").lower()
+        if "text/html" in accept:
+            loc = "/ks-admin/login" if str(request.url.path).startswith("/admin") else "/auth/login"
+            from fastapi.responses import RedirectResponse
+            return RedirectResponse(url=loc, status_code=303)
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
 
 BASE_DIR = Path(__file__).resolve().parent
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "app" / "static")), name="static")
@@ -101,11 +118,17 @@ async def ks_admin_login(
         return templates.TemplateResponse("admin/login.html", {
             "request": request, "error": "Invalid credentials"
         }, status_code=400)
-    if user.role != UserRole.general_admin:
+    if role_val(user.role) != "general_admin":
         return templates.TemplateResponse("admin/login.html", {
             "request": request, "error": "General Admin only"
         }, status_code=403)
     token = create_access_token({"sub": user.email})
+    user.last_login = __import__("datetime").datetime.utcnow()
+    try:
+        session.add(user)
+        session.commit()
+    except Exception:
+        pass
     resp = RedirectResponse("/admin/", status_code=303)
-    resp.set_cookie("access_token", token, httponly=True, max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60, samesite="lax")
+    set_auth_cookie(resp, token, request)
     return resp
