@@ -65,12 +65,20 @@ app.include_router(projects.router)
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request, user: Optional[User] = Depends(get_current_user)):
     if user:
-        if user.role == UserRole.member:
+        from app.auth import role_val
+        rv = role_val(user.role)
+        if rv == "member":
+            # pastors may use church dashboard
+            if getattr(user, "can_view_church_dashboard", False):
+                return RedirectResponse("/dashboard", status_code=303)
             return RedirectResponse("/member/portal", status_code=303)
-        if user.role == UserRole.general_admin:
+        if rv == "general_admin":
             return RedirectResponse("/admin/", status_code=303)
         return RedirectResponse("/dashboard", status_code=303)
-    return templates.TemplateResponse("index.html", {"request": request, "user": None})
+    try:
+        return templates.TemplateResponse("index.html", {"request": request, "user": None})
+    except Exception as e:
+        return HTMLResponse(f"<h1>Churchgate</h1><p><a href='/auth/login'>Sign in</a></p><!-- {e} -->")
 
 @app.get("/health")
 async def health():

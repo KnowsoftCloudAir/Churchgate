@@ -22,6 +22,13 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token", auto_error=False)
 def verify_password(plain: str, hashed: str) -> bool:
     return pwd_context.verify(plain, hashed)
 
+
+def role_val(role) -> str:
+    """Normalize UserRole enum or string to a simple value string."""
+    if role is None:
+        return ""
+    return str(getattr(role, "value", role)).lower().replace("userrole.", "")
+
 def get_password_hash(password: str) -> str:
     if isinstance(password, str):
         password = password.encode("utf-8")[:72].decode("utf-8", errors="ignore")
@@ -41,33 +48,47 @@ async def get_current_user(
     token: Optional[str] = Depends(oauth2_scheme),
     session: Session = Depends(get_session)
 ) -> Optional[User]:
-    if not token:
-        token = request.cookies.get("access_token")
-    if not token:
-        return None
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        email: str = payload.get("sub")
-        if not email:
+        if not token:
+            token = request.cookies.get("access_token")
+        if not token:
             return None
-    except JWTError:
+        try:
+            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            email: str = payload.get("sub")
+            if not email:
+                return None
+        except JWTError:
+            return None
+        user = get_user_by_email(session, email)
+        if not user or not user.is_active:
+            return None
+        try:
+            rv = role_val(user.role)
+            user.can_view_church_dashboard = rv in (
+                "general_admin", "church_admin", "data_officer"
+            )
+            user.member_status = None
+            if rv == "member":
+                from app.models import ChurchMember
+                from sqlmodel import select
+                m = None
+                try:
+                    if user.member_id:
+                        m = session.get(ChurchMember, user.member_id)
+                    if not m and user.email:
+                        m = session.exec(select(ChurchMember).where(ChurchMember.email == user.email)).first()
+                except Exception:
+                    m = None
+                user.can_view_church_dashboard = bool(m and (str(m.status or "")).lower() == "pastor")
+                user.member_status = (m.status if m else None)
+        except Exception:
+            user.can_view_church_dashboard = False
+            user.member_status = None
+        return user
+    except Exception:
         return None
-    user = get_user_by_email(session, email)
-    if not user or not user.is_active:
-        return None
-    # Church dashboard: staff always; members only if status is pastor
-    user.can_view_church_dashboard = user.role in (
-        UserRole.general_admin, UserRole.church_admin, UserRole.data_officer
-    )
-    if user.role == UserRole.member:
-        from app.models import ChurchMember
-        from sqlmodel import select
-        m = session.get(ChurchMember, user.member_id) if user.member_id else None
-        if not m:
-            m = session.exec(select(ChurchMember).where(ChurchMember.email == user.email)).first()
-        user.can_view_church_dashboard = bool(m and (m.status or "").lower() == "pastor")
-        user.member_status = (m.status if m else None)
-    return user
+
 
 async def require_user(user: Optional[User] = Depends(get_current_user)) -> User:
     if not user:
@@ -76,7 +97,9 @@ async def require_user(user: Optional[User] = Depends(get_current_user)) -> User
 
 def require_roles(*roles: UserRole):
     async def checker(user: User = Depends(require_user)) -> User:
-        if user.role not in roles and user.role != UserRole.general_admin:
+        rv = role_val(user.role)
+        allowed = {role_val(r) for r in roles} | {"general_admin"}
+        if rv not in allowed:
             raise HTTPException(status_code=403, detail="Insufficient permissions")
         return user
     return checker
