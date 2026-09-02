@@ -30,174 +30,158 @@ def collect_descendant_ids(session: Session, root_id: int) -> list:
             queue.append(k.id)
     return ids
 
-
 @router.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(
     request: Request,
     user: User = Depends(require_user),
     session: Session = Depends(get_session)
 ):
-    """Church dashboard — safe against missing columns / template errors."""
-    from app.auth import role_val
-    try:
-        if role_val(user.role) == "member":
-            m = session.get(ChurchMember, user.member_id) if user.member_id else None
-            if not m:
-                m = session.exec(select(ChurchMember).where(ChurchMember.email == user.email)).first()
-            if not (m and (str(m.status or "")).lower() == "pastor"):
-                return RedirectResponse("/member/portal", status_code=303)
+    church = session.get(ChurchUnit, user.church_id) if user.church_id else None
+    children = []
+    stats = []
+    members_count = 0
+    chart_labels = []
+    chart_attendance = []
+    chart_offering = []
+    chart_tithe = []
+    chart_donation = []
+    total_offering = 0.0
+    total_tithe = 0.0
+    latest_attendance = 0
+    scope_ids = []
+    demo = {}
 
-        church = session.get(ChurchUnit, user.church_id) if user.church_id else None
-        children = []
-        members_count = 0
-        chart_labels, chart_attendance, chart_offering, chart_tithe, chart_donation = [], [], [], [], []
-        total_offering = total_tithe = 0.0
-        latest_attendance = 0
-        demo = {}
-        map_markers = []
-        is_global_view = False
-        stats = []
+    if user.role == UserRole.general_admin and not church:
+        # Show global sample overview
+        churches = session.exec(select(ChurchUnit).order_by(ChurchUnit.name)).all()
+        members_count = len(session.exec(select(ChurchMember)).all())
+        return templates.TemplateResponse("church/dashboard.html", {
+            "request": request, "user": user, "church": None,
+            "children": churches, "stats": [], "members_count": members_count,
+            "chart_labels": [], "chart_attendance": [], "chart_offering": [],
+            "chart_tithe": [], "chart_donation": [],
+            "total_offering": 0, "total_tithe": 0, "latest_attendance": 0,
+            "is_admin_overview": True, "demo": {},
+        })
 
-        if role_val(user.role) == "general_admin" and not church:
-            churches = list(session.exec(select(ChurchUnit)).all())
-            try:
-                members_count = len(list(session.exec(select(ChurchMember)).all()))
-            except Exception:
-                members_count = 0
-            return templates.TemplateResponse("church/dashboard.html", {
-                "request": request, "user": user, "church": None,
-                "children": churches, "stats": [], "members_count": members_count,
-                "chart_labels": [], "chart_attendance": [], "chart_offering": [],
-                "chart_tithe": [], "chart_donation": [],
-                "total_offering": 0, "total_tithe": 0, "latest_attendance": 0,
-                "is_admin_overview": True, "demo": {},
-                "map_markers": [], "is_global_view": False, "admin_viewing": False,
-            })
+    if church:
+        children = session.exec(select(ChurchUnit).where(ChurchUnit.parent_id == church.id)).all()
+        scope_ids = collect_descendant_ids(session, church.id)
 
-        if church:
-            children = list(session.exec(select(ChurchUnit).where(ChurchUnit.parent_id == church.id)).all())
-            scope_ids = collect_descendant_ids(session, church.id)
-            try:
-                members_list = list(session.exec(
-                    select(ChurchMember).where(
-                        ChurchMember.church_id.in_(scope_ids),
-                        ChurchMember.approval_status == "approved",
-                    )
-                ).all())
-            except Exception:
-                members_list = []
-            members_count = len(members_list)
+        # Members in this unit + all descendants (so Global/Country see district members)
+        members_list = session.exec(
+            select(ChurchMember).where(
+                ChurchMember.church_id.in_(scope_ids),
+                ChurchMember.approval_status == "approved"
+            )
+        ).all()
+        members_count = len(members_list)
 
-            def count_sex_age(sex, ages):
-                return sum(
-                    1 for m in members_list
-                    if (m.sex or "").lower() in sex and (m.age_category or "") in ages
-                )
+        def count_sex_age(sex, ages):
+            return sum(1 for m in members_list if (m.sex or "").lower() in sex and (m.age_category or "") in ages)
 
-            demo = {
-                "men": count_sex_age(["brother", "male"], ["adult", "campus"]),
-                "women": count_sex_age(["sister", "female"], ["adult", "campus"]),
-                "youth_boys": count_sex_age(["brother", "male"], ["youth"]),
-                "youth_girls": count_sex_age(["sister", "female"], ["youth"]),
-                "ya_boys": count_sex_age(["brother", "male"], ["campus"]),
-                "ya_girls": count_sex_age(["sister", "female"], ["campus"]),
-                "children_boys": count_sex_age(["brother", "male"], ["child"]),
-                "children_girls": count_sex_age(["sister", "female"], ["child"]),
-                "newcomers_men": 0, "newcomers_women": 0, "newcomers_children": 0,
-                "converts_men": 0, "converts_women": 0, "converts_children": 0,
-            }
-            try:
-                own_stats = list(session.exec(
-                    select(WeeklyStat).where(WeeklyStat.church_id == church.id)
-                    .order_by(WeeklyStat.week_start.desc()).limit(12)
-                ).all())
-            except Exception:
-                own_stats = []
-            if own_stats:
-                stats = list(reversed(own_stats))
-            else:
-                try:
-                    all_stats = list(session.exec(
-                        select(WeeklyStat).where(WeeklyStat.church_id.in_(scope_ids))
-                    ).all())
-                except Exception:
-                    all_stats = []
-                by_week = {}
-                for s in all_stats:
-                    key = str(s.week_start)
-                    if key not in by_week:
-                        by_week[key] = {
-                            "week_start": s.week_start,
-                            "adult_male": 0, "adult_female": 0,
-                            "children_boys": 0, "children_girls": 0,
-                            "youth_male": 0, "youth_female": 0,
-                            "offering": 0.0, "tithe": 0.0, "donation": 0.0,
-                        }
-                    b = by_week[key]
-                    b["adult_male"] += s.adult_male or 0
-                    b["adult_female"] += s.adult_female or 0
-                    b["children_boys"] += s.children_boys or 0
-                    b["children_girls"] += s.children_girls or 0
-                    b["youth_male"] += s.youth_male or 0
-                    b["youth_female"] += s.youth_female or 0
-                    b["offering"] += float(s.offering or 0)
-                    b["tithe"] += float(s.tithe or 0)
-                    b["donation"] += float(s.donation or 0)
-                class Agg:
-                    def __init__(self, d):
-                        self.__dict__.update(d)
-                ordered = sorted(by_week.values(), key=lambda x: str(x["week_start"]))[-12:]
-                stats = [Agg(d) for d in ordered]
-
-            for s in stats:
-                att = (getattr(s, "adult_male", 0) or 0) + (getattr(s, "adult_female", 0) or 0)
-                att += (getattr(s, "children_boys", 0) or 0) + (getattr(s, "children_girls", 0) or 0)
-                att += (getattr(s, "youth_male", 0) or 0) + (getattr(s, "youth_female", 0) or 0)
-                chart_labels.append(str(getattr(s, "week_start", "")))
-                chart_attendance.append(att)
-                chart_offering.append(float(getattr(s, "offering", 0) or 0))
-                chart_tithe.append(float(getattr(s, "tithe", 0) or 0))
-                chart_donation.append(float(getattr(s, "donation", 0) or 0))
-                total_offering += float(getattr(s, "offering", 0) or 0)
-                total_tithe += float(getattr(s, "tithe", 0) or 0)
-            if chart_attendance:
-                latest_attendance = chart_attendance[-1]
-
-            lv = str(getattr(church.level, "value", church.level)).lower()
-            is_global_view = lv in ("global", "global_church")
-            if is_global_view:
-                for uid in scope_ids:
-                    u = session.get(ChurchUnit, uid)
-                    if u and getattr(u, "latitude", None) is not None and getattr(u, "longitude", None) is not None:
-                        map_markers.append({
-                            "name": u.name, "code": u.code,
-                            "level": str(getattr(u.level, "value", u.level)),
-                            "lat": float(u.latitude), "lng": float(u.longitude),
-                            "address": u.address or "",
-                        })
-
-        try:
-            return templates.TemplateResponse("church/dashboard.html", {
-                "request": request, "user": user, "church": church,
-                "children": children, "stats": stats, "members_count": members_count,
-                "chart_labels": chart_labels, "chart_attendance": chart_attendance,
-                "chart_offering": chart_offering, "chart_tithe": chart_tithe,
-                "chart_donation": chart_donation, "total_offering": total_offering,
-                "total_tithe": total_tithe, "latest_attendance": latest_attendance,
-                "is_admin_overview": False, "demo": demo,
-                "map_markers": map_markers, "is_global_view": is_global_view,
-                "admin_viewing": False,
-            })
-        except Exception:
-            return _simple_dashboard_html(user, church, members_count, children)
-    except Exception as e:
-        return HTMLResponse(
-            f"<html><body style='font-family:system-ui;padding:2rem'><h1>Dashboard</h1>"
-            f"<p>Temporary issue loading full dashboard.</p><p style='color:#64748b'>{e}</p>"
-            f"<p><a href='/district/members'>Members</a> · <a href='/auth/logout'>Sign out</a></p></body></html>"
-        )
+        demo = {
+            "men": count_sex_age(["brother", "male"], ["adult", "campus"]),
+            "women": count_sex_age(["sister", "female"], ["adult", "campus"]),
+            "youth_boys": count_sex_age(["brother", "male"], ["youth"]),
+            "youth_girls": count_sex_age(["sister", "female"], ["youth"]),
+            "ya_boys": count_sex_age(["brother", "male"], ["campus"]),
+            "ya_girls": count_sex_age(["sister", "female"], ["campus"]),
+            "children_boys": count_sex_age(["brother", "male"], ["child"]),
+            "children_girls": count_sex_age(["sister", "female"], ["child"]),
+        }
+        # Newcomers / converts from stats (sum period)
+        new_m = new_w = new_cb = new_cg = conv_m = conv_w = conv_c = 0
+        # We only have aggregate newcomers/converts on WeeklyStat – split approx 50/50 for display
+        for s in session.exec(select(WeeklyStat).where(WeeklyStat.church_id.in_(scope_ids))).all():
+            n, c = s.newcomers, s.converts
+            new_m += n // 2
+            new_w += n - n // 2
+            conv_m += c // 2
+            conv_w += c - c // 2
+        demo["newcomers_men"] = new_m
+        demo["newcomers_women"] = new_w
+        demo["newcomers_children"] = 0
+        demo["converts_men"] = conv_m
+        demo["converts_women"] = conv_w
+        demo["converts_children"] = 0
 
 
+        # Stats: prefer this unit; if empty (higher levels), aggregate from descendants
+        own_stats = session.exec(
+            select(WeeklyStat).where(WeeklyStat.church_id == church.id)
+            .order_by(WeeklyStat.week_start.desc()).limit(12)
+        ).all()
+
+        if own_stats:
+            stats = list(reversed(own_stats))
+        else:
+            # Aggregate by week_start across descendants
+            all_stats = session.exec(
+                select(WeeklyStat).where(WeeklyStat.church_id.in_(scope_ids))
+            ).all()
+            by_week = {}
+            for s in all_stats:
+                key = s.week_start.isoformat()
+                if key not in by_week:
+                    by_week[key] = {
+                        "week_start": s.week_start,
+                        "adult_male": 0, "adult_female": 0,
+                        "children_boys": 0, "children_girls": 0,
+                        "youth_male": 0, "youth_female": 0,
+                        "offering": 0.0, "tithe": 0.0, "donation": 0.0,
+                        "newcomers": 0, "converts": 0,
+                    }
+                b = by_week[key]
+                b["adult_male"] += s.adult_male
+                b["adult_female"] += s.adult_female
+                b["children_boys"] += s.children_boys
+                b["children_girls"] += s.children_girls
+                b["youth_male"] += s.youth_male
+                b["youth_female"] += s.youth_female
+                b["offering"] += s.offering
+                b["tithe"] += s.tithe
+                b["donation"] += s.donation
+                b["newcomers"] += s.newcomers
+                b["converts"] += s.converts
+            # fake objects for template
+            class Agg:
+                def __init__(self, d):
+                    self.__dict__.update(d)
+            ordered = sorted(by_week.values(), key=lambda x: x["week_start"])[-12:]
+            stats = [Agg(d) for d in ordered]
+
+        for s in stats:
+            att = (s.adult_male + s.adult_female + s.children_boys +
+                   s.children_girls + s.youth_male + s.youth_female)
+            chart_labels.append(str(s.week_start))
+            chart_attendance.append(att)
+            chart_offering.append(float(s.offering))
+            chart_tithe.append(float(s.tithe))
+            chart_donation.append(float(s.donation))
+            total_offering += float(s.offering)
+            total_tithe += float(s.tithe)
+        if chart_attendance:
+            latest_attendance = chart_attendance[-1]
+
+    return templates.TemplateResponse("church/dashboard.html", {
+        "request": request,
+        "user": user,
+        "church": church,
+        "children": children,
+        "stats": stats,
+        "members_count": members_count,
+        "chart_labels": chart_labels,
+        "chart_attendance": chart_attendance,
+        "chart_offering": chart_offering,
+        "chart_tithe": chart_tithe,
+        "chart_donation": chart_donation,
+        "total_offering": total_offering,
+        "total_tithe": total_tithe,
+        "latest_attendance": latest_attendance,
+        "is_admin_overview": False,
+        "demo": demo if church else {},
+    })
 
 @router.get("/church/create-child", response_class=HTMLResponse)
 async def create_child_page(
@@ -314,8 +298,6 @@ async def church_settings_save(
     offering_account_name: str = Form(""),
     offering_account_number: str = Form(""),
     offering_bank_name: str = Form(""),
-    latitude: str = Form(""),
-    longitude: str = Form(""),
     user: User = Depends(require_roles(UserRole.church_admin, UserRole.general_admin)),
     session: Session = Depends(get_session)
 ):
@@ -333,38 +315,6 @@ async def church_settings_save(
     church.offering_account_name = offering_account_name.strip() or None
     church.offering_account_number = offering_account_number.strip() or None
     church.offering_bank_name = offering_bank_name.strip() or None
-    try:
-        church.latitude = float(latitude) if latitude.strip() else None
-    except ValueError:
-        church.latitude = None
-    try:
-        church.longitude = float(longitude) if longitude.strip() else None
-    except ValueError:
-        church.longitude = None
     session.add(church)
     session.commit()
     return RedirectResponse("/church/settings", status_code=303)
-
-
-def _simple_dashboard_html(user, church, members_count, children):
-    from fastapi.responses import HTMLResponse
-    name = church.name if church else "Overview"
-    code = church.code if church else ""
-    kids = "".join(f"<li>{getattr(ch,'name','')}</li>" for ch in (children or []))
-    return HTMLResponse(f"""<!DOCTYPE html><html><head><title>{name}</title>
-    <script src="https://cdn.tailwindcss.com"></script></head>
-    <body class="bg-slate-100 p-8 font-sans">
-    <div class="max-w-3xl mx-auto bg-white rounded-2xl border p-8">
-      <h1 class="text-2xl font-bold">{name}</h1>
-      <p class="text-sm text-slate-500 mb-4">{code} · {getattr(user,'email','')}</p>
-      <p class="text-4xl font-bold text-blue-700 mb-2">{members_count}</p>
-      <p class="text-sm text-slate-500 mb-6">Approved members in this unit tree</p>
-      <h2 class="font-semibold mb-2">Sub-churches</h2>
-      <ul class="text-sm mb-6">{kids or '<li class=text-slate-400>None</li>'}</ul>
-      <div class="flex flex-wrap gap-3 text-sm">
-        <a class="px-3 py-2 rounded-lg bg-slate-900 text-white" href="/district/members">Members</a>
-        <a class="px-3 py-2 rounded-lg border" href="/district/stats/enter">Attendance</a>
-        <a class="px-3 py-2 rounded-lg border" href="/programs/">Programs</a>
-        <a class="px-3 py-2 rounded-lg border" href="/auth/logout">Sign out</a>
-      </div>
-    </div></body></html>""")

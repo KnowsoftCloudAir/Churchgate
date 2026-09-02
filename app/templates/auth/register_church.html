@@ -21,7 +21,7 @@
       <p class="text-sm text-slate-500 mb-6">Select your level and parent churches. Access is granted after approval.</p>
       {% if error %}<div class="mb-4 p-3 rounded-lg bg-red-50 text-red-700 text-sm">{{ error }}</div>{% endif %}
 
-      <form method="post" action="/auth/register-church" class="space-y-4" @submit="if (!geoStates.length && geoStateText) { $el.querySelector('[name=state_name]').value = geoStateText }">
+      <form method="post" action="/auth/register-church" class="space-y-4">
         <div>
           <label class="block text-sm font-semibold text-slate-700 mb-1.5">Church level *</label>
           <select name="level" x-model="level" @change="onLevelChange()" required
@@ -40,7 +40,7 @@
           <p class="text-xs font-semibold text-royal-800 uppercase tracking-wide">Parent churches</p>
           <div x-show="needsGlobal">
             <label class="text-sm font-medium">Global parent *</label>
-            <select name="parent_global_id" x-model="globalId" @change="loadCountries()" class="w-full mt-1 px-3 py-2.5 rounded-xl border">
+            <select name="parent_global_id" x-model="globalId" @change="loadCountries()" required class="w-full mt-1 px-3 py-2.5 rounded-xl border">
               <option value="">— Select Global —</option>
               <template x-for="g in globals" :key="g.id">
                 <option :value="g.id" x-text="g.name + ' (' + g.code + ')'"></option>
@@ -49,21 +49,21 @@
           </div>
           <div x-show="needsCountry">
             <label class="text-sm font-medium">Country parent *</label>
-            <select name="parent_country_id" x-model="countryId" @change="loadStates()"  class="w-full mt-1 px-3 py-2.5 rounded-xl border">
+            <select name="parent_country_id" x-model="countryId" @change="loadStates()" :required="needsCountry" class="w-full mt-1 px-3 py-2.5 rounded-xl border">
               <option value="">— Select Country —</option>
               <template x-for="c in countries" :key="c.id"><option :value="c.id" x-text="c.name"></option></template>
             </select>
           </div>
           <div x-show="needsState">
             <label class="text-sm font-medium">State parent *</label>
-            <select name="parent_state_id" x-model="stateId" @change="loadGroups()"  class="w-full mt-1 px-3 py-2.5 rounded-xl border">
+            <select name="parent_state_id" x-model="stateId" @change="loadGroups()" :required="needsState" class="w-full mt-1 px-3 py-2.5 rounded-xl border">
               <option value="">— Select State —</option>
               <template x-for="c in states" :key="c.id"><option :value="c.id" x-text="c.name"></option></template>
             </select>
           </div>
           <div x-show="needsGroup">
             <label class="text-sm font-medium">Group parent *</label>
-            <select name="parent_group_id" x-model="groupId"  class="w-full mt-1 px-3 py-2.5 rounded-xl border">
+            <select name="parent_group_id" x-model="groupId" :required="needsGroup" class="w-full mt-1 px-3 py-2.5 rounded-xl border">
               <option value="">— Select Group —</option>
               <template x-for="c in groups" :key="c.id"><option :value="c.id" x-text="c.name"></option></template>
             </select>
@@ -82,26 +82,8 @@
           <input name="phone" placeholder="Phone" class="w-full px-4 py-3 rounded-xl border">
           <input type="email" name="email" required placeholder="Church contact email *" class="w-full px-4 py-3 rounded-xl border">
         </div>
-        <div class="grid sm:grid-cols-2 gap-3">
-          <div>
-            <label class="text-sm font-medium text-slate-700">Country *</label>
-            <select name="country_name" x-model="geoCountry" @change="onGeoCountry()" required class="w-full mt-1 px-4 py-3 rounded-xl border">
-              <option value="">— Select country —</option>
-              <template x-for="c in allCountries" :key="c.code">
-                <option :value="c.name" x-text="c.name"></option>
-              </template>
-            </select>
-          </div>
-          <div>
-            <label class="text-sm font-medium text-slate-700">State / Province</label>
-            <select name="state_name" x-model="geoState" class="w-full mt-1 px-4 py-3 rounded-xl border" x-show="geoStates.length" x-cloak>
-              <option value="">— Select state —</option>
-              <template x-for="s in geoStates" :key="s"><option :value="s" x-text="s"></option></template>
-            </select>
-            <input x-show="!geoStates.length" x-cloak name="state_name" placeholder="State / province (type if not listed)" class="w-full mt-1 px-4 py-3 rounded-xl border"
-                   x-model="geoStateText">
-          </div>
-        </div>
+        <input name="country_name" placeholder="Country name (optional)" class="w-full px-4 py-3 rounded-xl border">
+        <input name="state_name" placeholder="State name (optional)" class="w-full px-4 py-3 rounded-xl border">
         <hr class="border-slate-100">
         <p class="text-sm font-semibold text-slate-700">Sub-admin login for this church</p>
         <input name="admin_full_name" required placeholder="Admin full name *" class="w-full px-4 py-3 rounded-xl border">
@@ -117,7 +99,6 @@
     return {
       level: '', globalId: '', countryId: '', stateId: '', groupId: '',
       globals: [], countries: [], states: [], groups: [],
-      allCountries: [], geoCountry: '', geoState: '', geoStateText: '', geoStates: [],
       get needsGlobal() { return ['country','state','group','district'].includes(this.level); },
       get needsCountry() { return ['state','group','district'].includes(this.level); },
       get needsState() { return ['group','district'].includes(this.level); },
@@ -125,15 +106,6 @@
       async init() {
         const r = await fetch('/api/churches-by-level?level=global');
         this.globals = await r.json();
-        try {
-          this.allCountries = await (await fetch('/api/geo/countries')).json();
-        } catch (e) { this.allCountries = []; }
-      },
-      onGeoCountry() {
-        const c = this.allCountries.find(x => x.name === this.geoCountry);
-        this.geoStates = (c && c.states) ? c.states : [];
-        this.geoState = '';
-        this.geoStateText = '';
       },
       onLevelChange() {
         this.globalId=''; this.countryId=''; this.stateId=''; this.groupId='';

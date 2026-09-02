@@ -76,8 +76,6 @@ class ChurchUnit(SQLModel, table=True):
     pastor_phone: Optional[str] = None
     pastor_email: Optional[str] = None
     weekly_activities_note: Optional[str] = Field(default=None, sa_column=Column(Text))
-    latitude: Optional[float] = None
-    longitude: Optional[float] = None
     approval_status: str = Field(default="pending")
     is_active: bool = Field(default=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
