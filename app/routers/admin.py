@@ -6,10 +6,18 @@ from sqlmodel import Session, select
 
 from app.database import get_session
 from app.models import User, UserRole, ChurchUnit, ChurchMember, WeeklyStat
-from app.auth import require_roles, get_password_hash
+from app.auth import require_roles, role_val
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent.parent / "templates"))
+
+
+def _safe_role(u) -> str:
+    try:
+        return role_val(u.role)
+    except Exception:
+        return ""
+
 
 @router.get("/", response_class=HTMLResponse)
 async def admin_home(
@@ -17,14 +25,62 @@ async def admin_home(
     user: User = Depends(require_roles(UserRole.general_admin)),
     session: Session = Depends(get_session)
 ):
-    churches = session.exec(select(ChurchUnit).order_by(ChurchUnit.created_at.desc())).all()
-    users = session.exec(select(User).order_by(User.created_at.desc()).limit(100)).all()
-    pending = [c for c in churches if c.approval_status == "pending"]
-    subadmins = [u for u in users if u.role == UserRole.church_admin]
-    return templates.TemplateResponse("admin/dashboard.html", {
-        "request": request, "user": user,
-        "churches": churches, "pending": pending, "users": users, "subadmins": subadmins
-    })
+    """General Admin home — defensive against missing columns / enum quirks."""
+    churches, users, pending, subadmins = [], [], [], []
+    error_note = None
+    try:
+        churches = list(session.exec(select(ChurchUnit).order_by(ChurchUnit.created_at.desc())).all())
+    except Exception as e:
+        error_note = f"Churches load issue: {e}"
+        try:
+            session.rollback()
+        except Exception:
+            pass
+    try:
+        users = list(session.exec(select(User).order_by(User.created_at.desc()).limit(100)).all())
+    except Exception as e:
+        error_note = (error_note or "") + f" Users load issue: {e}"
+        try:
+            session.rollback()
+        except Exception:
+            pass
+        users = []
+
+    pending = [c for c in churches if (getattr(c, "approval_status", None) or "") == "pending"]
+    subadmins = [u for u in users if _safe_role(u) == "church_admin"]
+
+    # Ensure template attrs exist
+    for u in subadmins:
+        for attr in ("can_create_churches", "can_approve_members", "can_enter_stats", "can_see_member_count"):
+            if not hasattr(u, attr):
+                setattr(u, attr, False)
+
+    try:
+        return templates.TemplateResponse("admin/dashboard.html", {
+            "request": request,
+            "user": user,
+            "churches": churches,
+            "pending": pending,
+            "users": users,
+            "subadmins": subadmins,
+            "error_note": error_note,
+        })
+    except Exception as e:
+        # Absolute fallback so admin is never a blank 500
+        html = f"""<!DOCTYPE html><html><head><title>Admin</title>
+        <style>body{{font-family:system-ui;max-width:40rem;margin:2rem auto;padding:1rem}}
+        a{{color:#1e40af}}</style></head><body>
+        <h1>General Admin</h1>
+        <p>Logged in as {getattr(user,'email','admin')}</p>
+        <p style="color:#b91c1c">Template issue: {e}</p>
+        <p><a href="/admin/globals">Global churches</a> ·
+        <a href="/ks-admin/login">Login</a> ·
+        <a href="/auth/logout">Sign out</a></p>
+        <p>Churches loaded: {len(churches)} · Pending: {len(pending)} · Users: {len(users)}</p>
+        <ul>{''.join(f'<li>{c.name} ({c.code}) – {c.approval_status}</li>' for c in churches[:30])}</ul>
+        </body></html>"""
+        return HTMLResponse(html)
+
 
 @router.get("/churches/{church_id}", response_class=HTMLResponse)
 async def view_church(
@@ -37,13 +93,17 @@ async def view_church(
     if not church:
         raise HTTPException(404, "Church not found")
     members = session.exec(select(ChurchMember).where(ChurchMember.church_id == church_id).limit(100)).all()
-    stats = session.exec(select(WeeklyStat).where(WeeklyStat.church_id == church_id).order_by(WeeklyStat.week_start.desc()).limit(12)).all()
+    stats = session.exec(
+        select(WeeklyStat).where(WeeklyStat.church_id == church_id)
+        .order_by(WeeklyStat.week_start.desc()).limit(12)
+    ).all()
     children = session.exec(select(ChurchUnit).where(ChurchUnit.parent_id == church_id)).all()
     admins = session.exec(select(User).where(User.church_id == church_id)).all()
     return templates.TemplateResponse("admin/church_edit.html", {
         "request": request, "user": user, "church": church,
         "members": members, "stats": stats, "children": children, "admins": admins
     })
+
 
 @router.post("/churches/{church_id}/edit")
 async def edit_church(
@@ -76,6 +136,7 @@ async def edit_church(
     session.commit()
     return RedirectResponse(f"/admin/churches/{church_id}", status_code=303)
 
+
 @router.post("/churches/{church_id}/approve")
 async def approve_church(
     church_id: int,
@@ -86,21 +147,29 @@ async def approve_church(
     if not church:
         raise HTTPException(404, "Church not found")
     church.approval_status = "approved"
+    church.is_active = True
     try:
-        if str(getattr(church.level, "value", church.level)) == "global" and not church.global_code:
+        if str(getattr(church.level, "value", church.level)) in ("global", "global_church") and not church.global_code:
             church.global_code = church.code
     except Exception:
         pass
     session.add(church)
-    admin = session.exec(select(User).where(User.church_id == church_id, User.role == UserRole.church_admin)).first()
-    if admin:
-        admin.is_active = True
-        # Default permissions when GA approves church — GA can tighten later
-        admin.can_approve_members = True
-        admin.can_create_churches = True
-        session.add(admin)
+    admin = session.exec(
+        select(User).where(User.church_id == church_id)
+    ).first()
+    # activate church admins for this unit
+    for admin in session.exec(select(User).where(User.church_id == church_id)).all():
+        if _safe_role(admin) in ("church_admin", "data_officer"):
+            admin.is_active = True
+            try:
+                admin.can_approve_members = True
+                admin.can_create_churches = True
+            except Exception:
+                pass
+            session.add(admin)
     session.commit()
     return RedirectResponse("/admin/", status_code=303)
+
 
 @router.post("/churches/{church_id}/reject")
 async def reject_church(
@@ -116,6 +185,38 @@ async def reject_church(
     session.commit()
     return RedirectResponse("/admin/", status_code=303)
 
+
+@router.post("/churches/{church_id}/disapprove")
+async def disapprove_church(
+    church_id: int,
+    user: User = Depends(require_roles(UserRole.general_admin)),
+    session: Session = Depends(get_session)
+):
+    """Disapprove Global (or any unit) and cascade to all branches + logins."""
+    church = session.get(ChurchUnit, church_id)
+    if not church:
+        raise HTTPException(404, "Church not found")
+    ids = [church.id]
+    queue = [church.id]
+    while queue:
+        pid = queue.pop(0)
+        for k in session.exec(select(ChurchUnit).where(ChurchUnit.parent_id == pid)).all():
+            ids.append(k.id)
+            queue.append(k.id)
+    for cid in ids:
+        unit = session.get(ChurchUnit, cid)
+        if unit:
+            unit.approval_status = "rejected"
+            unit.is_active = False
+            session.add(unit)
+        for u in session.exec(select(User).where(User.church_id == cid)).all():
+            if _safe_role(u) != "general_admin":
+                u.is_active = False
+                session.add(u)
+    session.commit()
+    return RedirectResponse("/admin/globals", status_code=303)
+
+
 @router.post("/users/{user_id}/permissions")
 async def set_subadmin_permissions(
     user_id: int,
@@ -125,18 +226,21 @@ async def set_subadmin_permissions(
     user: User = Depends(require_roles(UserRole.general_admin)),
     session: Session = Depends(get_session)
 ):
-    """General Admin grants/revokes sub-admin powers."""
     target = session.get(User, user_id)
     if not target:
         raise HTTPException(404, "User not found")
-    if target.role == UserRole.general_admin:
+    if _safe_role(target) == "general_admin":
         raise HTTPException(400, "Cannot change general admin")
-    target.can_create_churches = can_create_churches == "yes"
-    target.can_approve_members = can_approve_members == "yes"
-    target.can_enter_stats = can_enter_stats == "yes"
+    try:
+        target.can_create_churches = can_create_churches == "yes"
+        target.can_approve_members = can_approve_members == "yes"
+        target.can_enter_stats = can_enter_stats == "yes"
+    except Exception:
+        pass
     session.add(target)
     session.commit()
     return RedirectResponse("/admin/", status_code=303)
+
 
 @router.post("/users/{user_id}/deactivate")
 async def deactivate(
@@ -145,12 +249,13 @@ async def deactivate(
     session: Session = Depends(get_session)
 ):
     target = session.get(User, user_id)
-    if not target or target.role == UserRole.general_admin:
+    if not target or _safe_role(target) == "general_admin":
         raise HTTPException(400, "Cannot deactivate")
     target.is_active = False
     session.add(target)
     session.commit()
     return RedirectResponse("/admin/", status_code=303)
+
 
 @router.post("/users/{user_id}/activate")
 async def activate(
@@ -173,15 +278,20 @@ async def list_global_churches(
     user: User = Depends(require_roles(UserRole.general_admin)),
     session: Session = Depends(get_session)
 ):
-    """All churches registered at Global level."""
     from app.models import ChurchLevel
-    globals_ = session.exec(
-        select(ChurchUnit).where(ChurchUnit.level == ChurchLevel.global_church)
-        .order_by(ChurchUnit.created_at.desc())
-    ).all()
+    try:
+        globals_ = list(session.exec(
+            select(ChurchUnit).where(ChurchUnit.level == ChurchLevel.global_church)
+            .order_by(ChurchUnit.created_at.desc())
+        ).all())
+    except Exception:
+        # fallback: filter in python
+        all_c = list(session.exec(select(ChurchUnit)).all())
+        globals_ = [c for c in all_c if str(getattr(c.level, "value", c.level)).lower() in ("global", "global_church")]
     return templates.TemplateResponse("admin/globals.html", {
         "request": request, "user": user, "globals": globals_
     })
+
 
 @router.get("/churches/{church_id}/dashboard", response_class=HTMLResponse)
 async def admin_view_church_dashboard(
@@ -190,13 +300,10 @@ async def admin_view_church_dashboard(
     user: User = Depends(require_roles(UserRole.general_admin)),
     session: Session = Depends(get_session)
 ):
-    """General Admin views any church dashboard (especially global level)."""
-    from app.models import ChurchMember, WeeklyStat, ChurchLevel
     church = session.get(ChurchUnit, church_id)
     if not church:
         raise HTTPException(404, "Church not found")
 
-    # Collect descendants
     ids = [church.id]
     queue = [church.id]
     while queue:
@@ -205,10 +312,13 @@ async def admin_view_church_dashboard(
             ids.append(k.id)
             queue.append(k.id)
 
-    children = session.exec(select(ChurchUnit).where(ChurchUnit.parent_id == church.id)).all()
-    members_list = session.exec(
-        select(ChurchMember).where(ChurchMember.church_id.in_(ids), ChurchMember.approval_status == "approved")
-    ).all()
+    children = list(session.exec(select(ChurchUnit).where(ChurchUnit.parent_id == church.id)).all())
+    members_list = list(session.exec(
+        select(ChurchMember).where(
+            ChurchMember.church_id.in_(ids),
+            ChurchMember.approval_status == "approved"
+        )
+    ).all())
     members_count = len(members_list)
 
     def count_sex_age(sex, ages):
@@ -226,7 +336,8 @@ async def admin_view_church_dashboard(
         "newcomers_men": 0, "newcomers_women": 0, "newcomers_children": 0,
         "converts_men": 0, "converts_women": 0, "converts_children": 0,
     }
-    all_stats = session.exec(select(WeeklyStat).where(WeeklyStat.church_id.in_(ids))).all()
+
+    all_stats = list(session.exec(select(WeeklyStat).where(WeeklyStat.church_id.in_(ids))).all())
     by_week = {}
     for s in all_stats:
         key = s.week_start.isoformat()
@@ -235,26 +346,26 @@ async def admin_view_church_dashboard(
                 "week_start": s.week_start,
                 "adult_male": 0, "adult_female": 0, "children_boys": 0, "children_girls": 0,
                 "youth_male": 0, "youth_female": 0, "offering": 0.0, "tithe": 0.0, "donation": 0.0,
-                "newcomers": 0, "converts": 0,
             }
         b = by_week[key]
-        b["adult_male"] += s.adult_male
-        b["adult_female"] += s.adult_female
-        b["children_boys"] += s.children_boys
-        b["children_girls"] += s.children_girls
-        b["youth_male"] += s.youth_male
-        b["youth_female"] += s.youth_female
-        b["offering"] += s.offering
-        b["tithe"] += s.tithe
-        b["donation"] += s.donation
-        demo["newcomers_men"] += s.newcomers // 2
-        demo["newcomers_women"] += s.newcomers - s.newcomers // 2
-        demo["converts_men"] += s.converts // 2
-        demo["converts_women"] += s.converts - s.converts // 2
+        b["adult_male"] += s.adult_male or 0
+        b["adult_female"] += s.adult_female or 0
+        b["children_boys"] += s.children_boys or 0
+        b["children_girls"] += s.children_girls or 0
+        b["youth_male"] += s.youth_male or 0
+        b["youth_female"] += s.youth_female or 0
+        b["offering"] += float(s.offering or 0)
+        b["tithe"] += float(s.tithe or 0)
+        b["donation"] += float(s.donation or 0)
+        demo["newcomers_men"] += (s.newcomers or 0) // 2
+        demo["newcomers_women"] += (s.newcomers or 0) - (s.newcomers or 0) // 2
+        demo["converts_men"] += (s.converts or 0) // 2
+        demo["converts_women"] += (s.converts or 0) - (s.converts or 0) // 2
 
     class Agg:
         def __init__(self, d):
             self.__dict__.update(d)
+
     ordered = sorted(by_week.values(), key=lambda x: x["week_start"])[-12:]
     stats = [Agg(d) for d in ordered]
     chart_labels, chart_attendance, chart_offering, chart_tithe, chart_donation = [], [], [], [], []
@@ -273,7 +384,7 @@ async def admin_view_church_dashboard(
         latest_attendance = chart_attendance[-1]
 
     map_markers = []
-    lv = getattr(church.level, "value", str(church.level))
+    lv = str(getattr(church.level, "value", church.level)).lower()
     is_global_view = lv in ("global", "global_church")
     if is_global_view:
         for uid in ids:
@@ -281,10 +392,11 @@ async def admin_view_church_dashboard(
             if u and u.latitude is not None and u.longitude is not None:
                 map_markers.append({
                     "name": u.name, "code": u.code,
-                    "level": getattr(u.level, "value", str(u.level)),
+                    "level": str(getattr(u.level, "value", u.level)),
                     "lat": float(u.latitude), "lng": float(u.longitude),
                     "address": u.address or "",
                 })
+
     return templates.TemplateResponse("church/dashboard.html", {
         "request": request, "user": user, "church": church,
         "children": children, "stats": stats, "members_count": members_count,
@@ -295,36 +407,3 @@ async def admin_view_church_dashboard(
         "is_admin_overview": False, "demo": demo,
         "admin_viewing": True, "map_markers": map_markers, "is_global_view": is_global_view,
     })
-
-@router.post("/churches/{church_id}/disapprove")
-async def disapprove_church(
-    church_id: int,
-    user: User = Depends(require_roles(UserRole.general_admin)),
-    session: Session = Depends(get_session)
-):
-    """Disapprove a church (especially Global). Cascades to ALL branch units and their logins."""
-    church = session.get(ChurchUnit, church_id)
-    if not church:
-        raise HTTPException(404, "Church not found")
-
-    # Collect this unit + every descendant branch
-    ids = [church.id]
-    queue = [church.id]
-    while queue:
-        pid = queue.pop(0)
-        for k in session.exec(select(ChurchUnit).where(ChurchUnit.parent_id == pid)).all():
-            ids.append(k.id)
-            queue.append(k.id)
-
-    for cid in ids:
-        unit = session.get(ChurchUnit, cid)
-        if unit:
-            unit.approval_status = "rejected"
-            unit.is_active = False
-            session.add(unit)
-        for u in session.exec(select(User).where(User.church_id == cid)).all():
-            if u.role != UserRole.general_admin:
-                u.is_active = False
-                session.add(u)
-    session.commit()
-    return RedirectResponse("/admin/globals", status_code=303)

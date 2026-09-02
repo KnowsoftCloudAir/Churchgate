@@ -3,8 +3,9 @@
 {% block content %}
 <div class="max-w-6xl mx-auto px-4 py-8">
   <h1 class="text-2xl font-bold text-navy-900 mb-1">General Admin</h1>
-  <p class="mb-4"><a href="/admin/globals" class="text-sm font-semibold text-blue-700 hover:underline">→ Manage all Global churches (approve / disapprove / view dashboards)</a></p>
-  <p class="text-sm text-slate-500 mb-8">View and edit all churches · Grant sub-admin permissions</p>
+  <p class="text-sm text-slate-500 mb-2">{{ user.email }}</p>
+  <p class="mb-6"><a href="/admin/globals" class="text-sm font-semibold text-blue-700 hover:underline">→ Manage all Global churches (approve / disapprove / view dashboards)</a></p>
+  {% if error_note %}<div class="mb-4 p-3 bg-amber-50 text-amber-800 text-sm rounded-lg">{{ error_note }}</div>{% endif %}
 
   <div class="grid lg:grid-cols-2 gap-8">
     <div class="space-y-6">
@@ -14,12 +15,15 @@
         <div class="p-3 mb-3 rounded-xl bg-amber-50 border border-amber-100 text-sm">
           <p class="font-medium">{{ c.name }}</p>
           <p class="text-xs text-slate-500">{{ c.code }} · {{ c.level }} · {{ c.email }}</p>
-          <div class="mt-2 flex gap-2">
+          <div class="mt-2 flex flex-wrap gap-2">
             <form method="post" action="/admin/churches/{{ c.id }}/approve">
-              <button class="text-xs px-3 py-1.5 rounded-lg bg-teal-500 text-white">Approve (+ default sub-admin rights)</button>
+              <button class="text-xs px-3 py-1.5 rounded-lg bg-teal-500 text-white">Approve</button>
             </form>
             <form method="post" action="/admin/churches/{{ c.id }}/reject">
               <button class="text-xs px-3 py-1.5 rounded-lg bg-red-100 text-red-700">Reject</button>
+            </form>
+            <form method="post" action="/admin/churches/{{ c.id }}/disapprove">
+              <button class="text-xs px-3 py-1.5 rounded-lg bg-red-600 text-white">Disapprove</button>
             </form>
           </div>
         </div>
@@ -29,16 +33,21 @@
       </div>
 
       <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
-        <h2 class="font-semibold text-navy-900 mb-4">All churches — view / edit</h2>
+        <h2 class="font-semibold text-navy-900 mb-4">All churches ({{ churches|length }})</h2>
         <ul class="space-y-2 max-h-96 overflow-y-auto text-sm">
           {% for c in churches %}
-          <li class="flex items-center justify-between p-2 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-100">
+          <li class="flex items-center justify-between p-2 rounded-lg hover:bg-slate-50">
             <div>
               <a href="/admin/churches/{{ c.id }}" class="font-medium text-navy-800 hover:text-teal-600">{{ c.name }}</a>
               <p class="text-xs text-slate-500"><code>{{ c.code }}</code> · {{ c.approval_status }}</p>
             </div>
-            <a href="/admin/churches/{{ c.id }}" class="text-xs px-2 py-1 rounded bg-navy-900 text-white">Open</a>
+            <div class="flex gap-2">
+              <a href="/admin/churches/{{ c.id }}/dashboard" class="text-xs px-2 py-1 rounded bg-blue-700 text-white">Dashboard</a>
+              <a href="/admin/churches/{{ c.id }}" class="text-xs px-2 py-1 rounded bg-navy-900 text-white">Edit</a>
+            </div>
           </li>
+          {% else %}
+          <li class="text-slate-400">No churches in database yet</li>
           {% endfor %}
         </ul>
       </div>
@@ -46,7 +55,7 @@
 
     <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
       <h2 class="font-semibold text-navy-900 mb-2">Sub-admin permissions</h2>
-      <p class="text-xs text-slate-500 mb-4">Only sub-admins you enable can create churches or approve members.</p>
+      <p class="text-xs text-slate-500 mb-4">Grant create-church / approve-members rights.</p>
       <ul class="space-y-4 max-h-[32rem] overflow-y-auto">
         {% for u in subadmins %}
         <li class="p-3 rounded-xl bg-slate-50 border border-slate-100 text-sm">
