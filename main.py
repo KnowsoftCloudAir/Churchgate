@@ -30,13 +30,12 @@ async def lifespan(app: FastAPI):
                 session.add(admin)
                 session.commit()
             else:
-                # Keep known password working after deploys
-                admin.hashed_password = get_password_hash("Admin@12345")
+                # Do not overwrite password if admin already exists (user may have changed it)
                 admin.role = UserRole.general_admin
                 admin.is_active = True
                 session.add(admin)
                 session.commit()
-            print("✅ General Admin: admin@knowsoft.com / Admin@12345")
+            print("✅ General Admin ready: admin@knowsoft.com (default Admin@12345 if newly created)")
             # Full sample: Knowsoft Bible Church hierarchy + members + stats
             from app.seed_sample import seed_knowsoft_bible_church
             seed_knowsoft_bible_church(session)
@@ -104,7 +103,8 @@ async def health():
 # Hidden admin portal
 @app.get("/ks-admin/login", response_class=HTMLResponse)
 async def ks_admin_login_page(request: Request):
-    return templates.TemplateResponse("admin/login.html", {"request": request})
+    # Prefer public login so one door works everywhere
+    return RedirectResponse("/auth/login", status_code=303)
 
 @app.post("/ks-admin/login")
 async def ks_admin_login(
@@ -113,7 +113,7 @@ async def ks_admin_login(
     password: str = Form(...),
     session: Session = Depends(get_session)
 ):
-    user = session.exec(select(User).where(User.email == email)).first()
+    user = session.exec(select(User).where(User.email == email.strip().lower())).first()
     if not user or not verify_password(password, user.hashed_password):
         return templates.TemplateResponse("admin/login.html", {
             "request": request, "error": "Invalid credentials"

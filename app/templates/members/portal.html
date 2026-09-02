@@ -2,7 +2,10 @@
 {% block title %}My Dashboard – Churchgate{% endblock %}
 {% block content %}
 <div class="max-w-3xl mx-auto px-4 py-8">
-  <h1 class="text-2xl font-bold text-navy-900 mb-1">My dashboard</h1>
+  <div class="flex flex-wrap justify-between items-start gap-2 mb-1">
+  <h1 class="text-2xl font-bold text-navy-900">My dashboard</h1>
+  <a href="/auth/change-password" class="text-sm text-blue-700 font-medium">Change password</a>
+</div>
   <p class="text-sm text-slate-500 mb-6">Weekly activities · Events · Giving · Your church</p>
 
   {% if not member %}
@@ -21,6 +24,17 @@
   </div>
 
   {% if member.approval_status == 'approved' %}
+
+  <!-- Account security -->
+  <section class="bg-white rounded-2xl border border-slate-200 p-5 mb-4 shadow-sm">
+    <h2 class="font-semibold text-navy-900 mb-1">Account security</h2>
+    <p class="text-sm text-slate-600 mb-3">You can change your sign-in password at any time.</p>
+    <a href="/auth/change-password"
+       class="inline-block px-4 py-2.5 rounded-xl bg-navy-900 text-white text-sm font-semibold">
+      Change my password
+    </a>
+  </section>
+
 
   <!-- Weekly activities -->
   <section class="bg-white rounded-2xl border border-slate-200 p-5 mb-4 shadow-sm">

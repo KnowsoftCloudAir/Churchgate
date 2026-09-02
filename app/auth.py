@@ -1,23 +1,21 @@
 from datetime import datetime, timedelta
 from typing import Optional
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
-from fastapi.responses import RedirectResponse
 from sqlmodel import Session, select
 from dotenv import load_dotenv
 import os
+import bcrypt
 
 from app.database import get_session
 from app.models import User, UserRole
 
 load_dotenv()
-SECRET_KEY = os.getenv("SECRET_KEY", "knowsoft-churchgate-change-this-in-production-32chars")
-ALGORITHM = os.getenv("ALGORITHM", "HS256")
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 1440 * 7))  # 7 days
+SECRET_KEY = os.getenv("SECRET_KEY", "knowsoft-churchgate-prod-secret-key-32chars!!")
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", str(60 * 24 * 14)))  # 14 days
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token", auto_error=False)
 
 
@@ -27,19 +25,23 @@ def role_val(role) -> str:
     return str(getattr(role, "value", role)).lower().replace("userrole.", "")
 
 
+def _truncate(password: str) -> bytes:
+    raw = password if isinstance(password, str) else str(password)
+    return raw.encode("utf-8")[:72]
+
+
 def verify_password(plain: str, hashed: str) -> bool:
+    if not plain or not hashed:
+        return False
     try:
-        if isinstance(plain, str):
-            plain = plain.encode("utf-8")[:72].decode("utf-8", errors="ignore")
-        return pwd_context.verify(plain, hashed)
+        h = hashed.encode("utf-8") if isinstance(hashed, str) else hashed
+        return bcrypt.checkpw(_truncate(plain), h)
     except Exception:
         return False
 
 
 def get_password_hash(password: str) -> str:
-    if isinstance(password, str):
-        password = password.encode("utf-8")[:72].decode("utf-8", errors="ignore")
-    return pwd_context.hash(password)
+    return bcrypt.hashpw(_truncate(password), bcrypt.gensalt()).decode("utf-8")
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
@@ -50,17 +52,13 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
 
 
 def get_user_by_email(session: Session, email: str) -> Optional[User]:
-    return session.exec(select(User).where(User.email == email)).first()
+    if not email:
+        return None
+    return session.exec(select(User).where(User.email == email.strip().lower())).first()
 
 
 def set_auth_cookie(response, token: str, request: Optional[Request] = None) -> None:
-    """Set session cookie so it works on Render HTTPS."""
-    secure = False
-    if request is not None:
-        # Render terminates TLS; X-Forwarded-Proto is https
-        proto = request.headers.get("x-forwarded-proto", "")
-        url_scheme = str(request.url.scheme)
-        secure = proto == "https" or url_scheme == "https"
+    """HTTPS-safe session cookie for Render."""
     response.set_cookie(
         key="access_token",
         value=token,
@@ -69,24 +67,22 @@ def set_auth_cookie(response, token: str, request: Optional[Request] = None) -> 
         expires=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         path="/",
         samesite="lax",
-        secure=secure,
+        secure=True,  # Render serves HTTPS; required for reliable cookies
     )
 
 
 def clear_auth_cookie(response) -> None:
-    response.delete_cookie("access_token", path="/")
+    response.delete_cookie("access_token", path="/", samesite="lax", secure=True)
 
 
 def extract_token(request: Request, bearer: Optional[str] = None) -> Optional[str]:
     if bearer:
         return bearer
-    # Cookie (primary for browser forms)
     tok = request.cookies.get("access_token")
     if tok:
         return tok
-    # Authorization header fallback
-    auth = request.headers.get("authorization") or request.headers.get("Authorization")
-    if auth and auth.lower().startswith("bearer "):
+    auth = request.headers.get("authorization") or ""
+    if auth.lower().startswith("bearer "):
         return auth.split(" ", 1)[1].strip()
     return None
 
@@ -140,33 +136,20 @@ async def get_current_user(
         return None
 
 
-async def require_user(request: Request, user: Optional[User] = Depends(get_current_user)) -> User:
-    """Require login. Raises 401; exception handler converts to redirect for browsers."""
+async def require_user(
+    request: Request,
+    user: Optional[User] = Depends(get_current_user),
+) -> User:
     if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated",
-        )
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
     return user
 
 
 def require_roles(*roles: UserRole):
-    async def checker(
-        request: Request,
-        user: User = Depends(require_user),
-    ) -> User:
+    async def checker(request: Request, user: User = Depends(require_user)) -> User:
         rv = role_val(user.role)
         allowed = {role_val(r) for r in roles} | {"general_admin"}
         if rv not in allowed:
-            accept = (request.headers.get("accept") or "").lower()
-            if "text/html" in accept or "text/html" not in accept:
-                # Redirect browsers away from forbidden JSON
-                raise HTTPException(
-                    status_code=status.HTTP_303_SEE_OTHER,
-                    detail="Forbidden",
-                    headers={"Location": "/auth/login"},
-                )
             raise HTTPException(status_code=403, detail="Insufficient permissions")
         return user
-
     return checker

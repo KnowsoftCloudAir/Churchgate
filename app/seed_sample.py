@@ -19,6 +19,7 @@ DATA_PASSWORD = "Data@12345"
 def _ensure_admin(session: Session, email: str, name: str, church_id: int,
                   role=UserRole.church_admin, password: str = SAMPLE_PASSWORD, stats: bool = False):
     """Create or reset sample sub-admin so login always works."""
+    email = email.strip().lower()
     u = session.exec(select(User).where(User.email == email)).first()
     if u:
         u.hashed_password = get_password_hash(password)

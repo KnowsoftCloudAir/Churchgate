@@ -46,7 +46,7 @@ async def login(
     password: str = Form(...),
     session: Session = Depends(get_session)
 ):
-    user = session.exec(select(User).where(User.email == email)).first()
+    user = session.exec(select(User).where(User.email == email.strip().lower())).first()
     if not user or not verify_password(password, user.hashed_password):
         return templates.TemplateResponse("auth/login.html", {
             "request": request, "error": "Invalid email or password"
@@ -208,7 +208,7 @@ async def register_church(
     elif church_level == ChurchLevel.district:
         district_code = code
 
-    existing_user = session.exec(select(User).where(User.email == email)).first()
+    existing_user = session.exec(select(User).where(User.email == email.strip().lower())).first()
     if existing_user:
         return templates.TemplateResponse("auth/register_church.html", {
             "request": request, "error": "Email already registered"
@@ -258,6 +258,53 @@ async def register_church(
         "code": code,
         "email": email
     })
+
+@router.get("/change-password", response_class=HTMLResponse)
+async def change_password_page(
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    if not user:
+        return RedirectResponse("/auth/login", status_code=303)
+    return templates.TemplateResponse("auth/change_password.html", {
+        "request": request, "user": user, "error": None, "success": None
+    })
+
+
+@router.post("/change-password", response_class=HTMLResponse)
+async def change_password(
+    request: Request,
+    current_password: str = Form(...),
+    new_password: str = Form(...),
+    confirm_password: str = Form(...),
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    if not user:
+        return RedirectResponse("/auth/login", status_code=303)
+    err = None
+    if not verify_password(current_password, user.hashed_password):
+        err = "Current password is incorrect."
+    elif len(new_password) < 6:
+        err = "New password must be at least 6 characters."
+    elif new_password != confirm_password:
+        err = "New password and confirmation do not match."
+    if err:
+        return templates.TemplateResponse("auth/change_password.html", {
+            "request": request, "user": user, "error": err, "success": None
+        }, status_code=400)
+    # Refresh user from DB and update hash
+    db_user = session.get(User, user.id)
+    if not db_user:
+        return RedirectResponse("/auth/login", status_code=303)
+    db_user.hashed_password = get_password_hash(new_password)
+    session.add(db_user)
+    session.commit()
+    return templates.TemplateResponse("auth/change_password.html", {
+        "request": request, "user": user,
+        "error": None, "success": "Password updated successfully. Use your new password next time you sign in."
+    })
+
 
 @router.get("/logout")
 async def logout():
