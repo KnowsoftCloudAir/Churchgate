@@ -1,70 +1,54 @@
-from fastapi import FastAPI, Request, Depends, Form, HTTPException
-from fastapi.responses import JSONResponse
+from pathlib import Path
 from typing import Optional
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, Request, Depends, Form, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse, RedirectResponse
-from contextlib import asynccontextmanager
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from sqlmodel import Session, select
-from pathlib import Path
 
 from app.database import create_db_and_tables, get_session, engine
 from app.models import User, UserRole
-from app.auth import get_password_hash, get_current_user, verify_password, create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES, set_auth_cookie, role_val
+from app.auth import (
+    get_password_hash, get_current_user, verify_password,
+    create_access_token, set_auth_cookie, role_val,
+)
 from app.routers import auth, admin, church, district, members, programs, projects
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     create_db_and_tables()
     try:
         with Session(engine) as session:
-            admin = session.exec(select(User).where(User.email == "admin@knowsoft.com")).first()
+            admin = session.exec(
+                select(User).where(User.email == "admin@knowsoft.com")
+            ).first()
             if not admin:
-                admin = User(
+                session.add(User(
                     email="admin@knowsoft.com",
                     hashed_password=get_password_hash("Admin@12345"),
                     full_name="Knowsoft General Admin",
                     role=UserRole.general_admin,
-                    is_active=True
-                )
-                session.add(admin)
+                    is_active=True,
+                ))
                 session.commit()
+                print("✅ General Admin created: admin@knowsoft.com / Admin@12345")
             else:
-                # Do not overwrite password if admin already exists (user may have changed it)
                 admin.role = UserRole.general_admin
                 admin.is_active = True
                 session.add(admin)
                 session.commit()
-            print("✅ General Admin ready: admin@knowsoft.com (default Admin@12345 if newly created)")
-            # Full sample: Knowsoft Bible Church hierarchy + members + stats
+                print("✅ General Admin present: admin@knowsoft.com")
             from app.seed_sample import seed_knowsoft_bible_church
             seed_knowsoft_bible_church(session)
     except Exception as e:
         print(f"⚠️ Seed: {e}")
     yield
 
-app = FastAPI(
-    title="Knowsoft Churchgate",
-    description="Church hierarchy, membership & growth analytics platform",
-    version="1.0.0",
-    lifespan=lifespan
-)
 
-
-@app.exception_handler(HTTPException)
-async def http_exception_handler(request: Request, exc: HTTPException):
-    """Turn 303 auth redirects into real redirects; keep JSON for true API errors."""
-    if exc.status_code in (303, 302) and exc.headers and "Location" in exc.headers:
-        from fastapi.responses import RedirectResponse
-        return RedirectResponse(url=exc.headers["Location"], status_code=303)
-    if exc.status_code == 401:
-        accept = (request.headers.get("accept") or "").lower()
-        if "text/html" in accept:
-            loc = "/ks-admin/login" if str(request.url.path).startswith("/admin") else "/auth/login"
-            from fastapi.responses import RedirectResponse
-            return RedirectResponse(url=loc, status_code=303)
-    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
-
+app = FastAPI(title="Knowsoft Churchgate", version="1.0.0", lifespan=lifespan)
 
 BASE_DIR = Path(__file__).resolve().parent
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "app" / "static")), name="static")
@@ -78,57 +62,62 @@ app.include_router(members.router)
 app.include_router(programs.router)
 app.include_router(projects.router)
 
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    # Browser: send unauthenticated users to login instead of JSON
+    if exc.status_code == 401:
+        accept = (request.headers.get("accept") or "").lower()
+        if "text/html" in accept or "text/html" not in accept:
+            # Prefer redirect for normal browser navigations
+            path = str(request.url.path)
+            if path.startswith("/admin"):
+                return RedirectResponse("/auth/login", status_code=303)
+            return RedirectResponse("/auth/login", status_code=303)
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
+
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request, user: Optional[User] = Depends(get_current_user)):
     if user:
-        from app.auth import role_val
         rv = role_val(user.role)
-        if rv == "member":
-            # pastors may use church dashboard
-            if getattr(user, "can_view_church_dashboard", False):
-                return RedirectResponse("/dashboard", status_code=303)
-            return RedirectResponse("/member/portal", status_code=303)
         if rv == "general_admin":
             return RedirectResponse("/admin/", status_code=303)
+        if rv == "member" and not getattr(user, "can_view_church_dashboard", False):
+            return RedirectResponse("/member/portal", status_code=303)
         return RedirectResponse("/dashboard", status_code=303)
-    try:
-        return templates.TemplateResponse("index.html", {"request": request, "user": None})
-    except Exception as e:
-        return HTMLResponse(f"<h1>Churchgate</h1><p><a href='/auth/login'>Sign in</a></p><!-- {e} -->")
+    return templates.TemplateResponse("index.html", {"request": request, "user": None})
+
 
 @app.get("/health")
 async def health():
     return {"status": "ok", "app": "Knowsoft Churchgate"}
 
-# Hidden admin portal
+
+# Keep /ks-admin/login as alias to public login
 @app.get("/ks-admin/login", response_class=HTMLResponse)
 async def ks_admin_login_page(request: Request):
-    # Prefer public login so one door works everywhere
     return RedirectResponse("/auth/login", status_code=303)
+
 
 @app.post("/ks-admin/login")
 async def ks_admin_login(
     request: Request,
     email: str = Form(...),
     password: str = Form(...),
-    session: Session = Depends(get_session)
+    session: Session = Depends(get_session),
 ):
+    # Same as public login, then go admin if general_admin
     user = session.exec(select(User).where(User.email == email.strip().lower())).first()
     if not user or not verify_password(password, user.hashed_password):
-        return templates.TemplateResponse("admin/login.html", {
+        return templates.TemplateResponse("auth/login.html", {
             "request": request, "error": "Invalid credentials"
         }, status_code=400)
     if role_val(user.role) != "general_admin":
-        return templates.TemplateResponse("admin/login.html", {
-            "request": request, "error": "General Admin only"
+        return templates.TemplateResponse("auth/login.html", {
+            "request": request, "error": "General Admin only — use /auth/login for other accounts"
         }, status_code=403)
     token = create_access_token({"sub": user.email})
-    user.last_login = __import__("datetime").datetime.utcnow()
-    try:
-        session.add(user)
-        session.commit()
-    except Exception:
-        pass
     resp = RedirectResponse("/admin/", status_code=303)
-    set_auth_cookie(resp, token, request)
+    set_auth_cookie(resp, token)
     return resp

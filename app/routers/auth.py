@@ -94,7 +94,7 @@ async def login(
     else:
         dest = "/dashboard"
     resp = RedirectResponse(dest, status_code=303)
-    set_auth_cookie(resp, token, request)
+    set_auth_cookie(resp, token)
     return resp
 
 @router.get("/register-church", response_class=HTMLResponse)
