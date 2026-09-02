@@ -31,6 +31,11 @@ def generate_code(prefix: str = "CG") -> str:
 @router.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request, user: Optional[User] = Depends(get_current_user)):
     if user:
+        rv = role_val(user.role)
+        if rv == "general_admin":
+            return RedirectResponse("/admin/", status_code=303)
+        if rv == "member" and not getattr(user, "can_view_church_dashboard", False):
+            return RedirectResponse("/member/portal", status_code=303)
         return RedirectResponse("/dashboard", status_code=303)
     return templates.TemplateResponse("auth/login.html", {"request": request})
 
@@ -52,14 +57,14 @@ async def login(
         }, status_code=400)
 
     # Church admins must belong to an approved church
-    if user.role == UserRole.church_admin and user.church_id:
+    if role_val(user.role) == "church_admin" and user.church_id:
         church = session.get(ChurchUnit, user.church_id)
         if church and church.approval_status != "approved":
             return templates.TemplateResponse("auth/login.html", {
                 "request": request, "error": "Your church is still pending approval by Knowsoft Admin."
             }, status_code=400)
     # Members need approved membership for full login
-    if user.role == UserRole.member:
+    if role_val(user.role) == "member":
         m = session.get(ChurchMember, user.member_id) if user.member_id else None
         if not m:
             m = session.exec(select(ChurchMember).where(ChurchMember.email == user.email)).first()

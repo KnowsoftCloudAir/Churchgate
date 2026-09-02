@@ -141,24 +141,11 @@ async def get_current_user(
 
 
 async def require_user(request: Request, user: Optional[User] = Depends(get_current_user)) -> User:
-    """Require login — redirect to HTML login (never bare JSON for browsers)."""
+    """Require login. Raises 401; exception handler converts to redirect for browsers."""
     if user is None:
-        accept = (request.headers.get("accept") or "").lower()
-        # API-ish clients still get JSON
-        if "application/json" in accept and "text/html" not in accept:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Not authenticated",
-            )
-        # Default: send browser to sign-in
-        return_to = str(request.url.path)
-        login = "/auth/login"
-        if return_to.startswith("/admin") or return_to.startswith("/ks-admin"):
-            login = "/ks-admin/login"
         raise HTTPException(
-            status_code=status.HTTP_303_SEE_OTHER,
+            status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not authenticated",
-            headers={"Location": login},
         )
     return user
 

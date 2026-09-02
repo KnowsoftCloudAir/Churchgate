@@ -28,7 +28,7 @@
       <div class="flex items-center gap-1 sm:gap-2 text-sm overflow-x-auto">
         {% if (user.can_view_church_dashboard if user.can_view_church_dashboard is defined else false) %}
         <a href="/dashboard" class="px-3 py-1.5 rounded-lg hover:bg-slate-100 whitespace-nowrap">Dashboard</a>
-        {% if user.role in ['church_admin', 'data_officer', 'general_admin'] %}
+        {% if (user.role.value if user.role.value is defined else user.role) in ['church_admin', 'data_officer', 'general_admin'] %}
         <a href="/district/members" class="px-3 py-1.5 rounded-lg hover:bg-slate-100 whitespace-nowrap">Members</a>
         <a href="/district/approvals" class="px-3 py-1.5 rounded-lg hover:bg-slate-100 whitespace-nowrap">Approvals</a>
         <a href="/district/stats/enter" class="px-3 py-1.5 rounded-lg hover:bg-slate-100 whitespace-nowrap">Attendance</a>
@@ -37,7 +37,7 @@
         <a href="/church/settings" class="px-3 py-1.5 rounded-lg hover:bg-slate-100 whitespace-nowrap">Church info</a>
         {% endif %}
         <a href="/programs/" class="px-3 py-1.5 rounded-lg hover:bg-slate-100 whitespace-nowrap">Programs</a>
-        {% if user.role == 'member' %}
+        {% if (user.role.value if user.role.value is defined else user.role) == 'member' %}
         <a href="/member/portal" class="px-3 py-1.5 rounded-lg hover:bg-slate-100 whitespace-nowrap">My profile</a>
         {% endif %}
         <a href="/district/reports/pdf" class="px-3 py-1.5 rounded-lg hover:bg-slate-100 whitespace-nowrap hidden sm:inline">Report</a>
