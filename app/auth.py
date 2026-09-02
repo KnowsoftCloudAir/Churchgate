@@ -55,6 +55,18 @@ async def get_current_user(
     user = get_user_by_email(session, email)
     if not user or not user.is_active:
         return None
+    # Church dashboard: staff always; members only if status is pastor
+    user.can_view_church_dashboard = user.role in (
+        UserRole.general_admin, UserRole.church_admin, UserRole.data_officer
+    )
+    if user.role == UserRole.member:
+        from app.models import ChurchMember
+        from sqlmodel import select
+        m = session.get(ChurchMember, user.member_id) if user.member_id else None
+        if not m:
+            m = session.exec(select(ChurchMember).where(ChurchMember.email == user.email)).first()
+        user.can_view_church_dashboard = bool(m and (m.status or "").lower() == "pastor")
+        user.member_status = (m.status if m else None)
     return user
 
 async def require_user(user: Optional[User] = Depends(get_current_user)) -> User:

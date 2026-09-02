@@ -106,7 +106,10 @@
     </div>
     {% endif %}
 
-    {% if church %}
+    {% if admin_viewing %}
+    <p class="mt-4 text-sm text-blue-100">Viewing as <strong>General Admin</strong> · <a href="/admin/globals" class="underline text-amber-300">Back to Global churches</a></p>
+    {% endif %}
+    {% if church and not admin_viewing %}
     <div class="flex flex-wrap gap-3">
       <a href="/district/stats/enter" class="px-5 py-3 rounded-xl bg-amber-400 text-slate-900 text-sm font-bold shadow-lg">Weekly attendance</a>
       <a href="/district/members" class="px-5 py-3 rounded-xl bg-white text-blue-900 text-sm font-bold shadow-lg border-2 border-amber-300">View members list</a>

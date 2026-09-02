@@ -36,6 +36,15 @@ async def dashboard(
     user: User = Depends(require_user),
     session: Session = Depends(get_session)
 ):
+    # Only staff OR members with pastor status may use the church dashboard
+    if user.role == UserRole.member:
+        from app.models import ChurchMember
+        m = session.get(ChurchMember, user.member_id) if user.member_id else None
+        if not m:
+            m = session.exec(select(ChurchMember).where(ChurchMember.email == user.email)).first()
+        is_pastor = m and (m.status or "").lower() == "pastor"
+        if not is_pastor:
+            return RedirectResponse("/member/portal", status_code=303)
     church = session.get(ChurchUnit, user.church_id) if user.church_id else None
     children = []
     stats = []

@@ -58,6 +58,10 @@ app.include_router(projects.router)
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request, user: Optional[User] = Depends(get_current_user)):
     if user:
+        if user.role == UserRole.member:
+            return RedirectResponse("/member/portal", status_code=303)
+        if user.role == UserRole.general_admin:
+            return RedirectResponse("/admin/", status_code=303)
         return RedirectResponse("/dashboard", status_code=303)
     return templates.TemplateResponse("index.html", {"request": request, "user": None})
 

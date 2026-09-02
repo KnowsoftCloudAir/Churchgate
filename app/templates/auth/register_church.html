@@ -40,7 +40,7 @@
           <p class="text-xs font-semibold text-royal-800 uppercase tracking-wide">Parent churches</p>
           <div x-show="needsGlobal">
             <label class="text-sm font-medium">Global parent *</label>
-            <select name="parent_global_id" x-model="globalId" @change="loadCountries()" required class="w-full mt-1 px-3 py-2.5 rounded-xl border">
+            <select name="parent_global_id" x-model="globalId" @change="loadCountries()" class="w-full mt-1 px-3 py-2.5 rounded-xl border">
               <option value="">— Select Global —</option>
               <template x-for="g in globals" :key="g.id">
                 <option :value="g.id" x-text="g.name + ' (' + g.code + ')'"></option>
@@ -49,21 +49,21 @@
           </div>
           <div x-show="needsCountry">
             <label class="text-sm font-medium">Country parent *</label>
-            <select name="parent_country_id" x-model="countryId" @change="loadStates()" :required="needsCountry" class="w-full mt-1 px-3 py-2.5 rounded-xl border">
+            <select name="parent_country_id" x-model="countryId" @change="loadStates()"  class="w-full mt-1 px-3 py-2.5 rounded-xl border">
               <option value="">— Select Country —</option>
               <template x-for="c in countries" :key="c.id"><option :value="c.id" x-text="c.name"></option></template>
             </select>
           </div>
           <div x-show="needsState">
             <label class="text-sm font-medium">State parent *</label>
-            <select name="parent_state_id" x-model="stateId" @change="loadGroups()" :required="needsState" class="w-full mt-1 px-3 py-2.5 rounded-xl border">
+            <select name="parent_state_id" x-model="stateId" @change="loadGroups()"  class="w-full mt-1 px-3 py-2.5 rounded-xl border">
               <option value="">— Select State —</option>
               <template x-for="c in states" :key="c.id"><option :value="c.id" x-text="c.name"></option></template>
             </select>
           </div>
           <div x-show="needsGroup">
             <label class="text-sm font-medium">Group parent *</label>
-            <select name="parent_group_id" x-model="groupId" :required="needsGroup" class="w-full mt-1 px-3 py-2.5 rounded-xl border">
+            <select name="parent_group_id" x-model="groupId"  class="w-full mt-1 px-3 py-2.5 rounded-xl border">
               <option value="">— Select Group —</option>
               <template x-for="c in groups" :key="c.id"><option :value="c.id" x-text="c.name"></option></template>
             </select>

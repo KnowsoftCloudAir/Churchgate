@@ -74,7 +74,11 @@ async def login(
     if user.role == UserRole.general_admin:
         dest = "/admin/"
     elif user.role == UserRole.member:
-        dest = "/member/portal"
+        from app.models import ChurchMember
+        m = session.get(ChurchMember, user.member_id) if user.member_id else None
+        if not m:
+            m = session.exec(select(ChurchMember).where(ChurchMember.email == user.email)).first()
+        dest = "/dashboard" if (m and (m.status or "").lower() == "pastor") else "/member/portal"
     else:
         dest = "/dashboard"
     resp = RedirectResponse(dest, status_code=303)
@@ -107,11 +111,22 @@ async def register_church(
     admin_password: str = Form(...),
     session: Session = Depends(get_session)
 ):
+    level_raw = (level or "").strip().lower()
+    # Accept "global" as global_church enum value
+    level_map = {
+        "global": "global",
+        "global_church": "global",
+        "country": "country",
+        "state": "state",
+        "group": "group",
+        "district": "district",
+    }
+    level_raw = level_map.get(level_raw, level_raw)
     try:
-        church_level = ChurchLevel(level)
+        church_level = ChurchLevel(level_raw)
     except ValueError:
         return templates.TemplateResponse("auth/register_church.html", {
-            "request": request, "error": "Invalid church level"
+            "request": request, "error": f"Invalid church level: {level}"
         }, status_code=400)
 
     parent_id = None
