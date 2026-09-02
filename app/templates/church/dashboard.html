@@ -176,17 +176,55 @@
         scales: { x: { ticks: { color: '#cbd5e1' } }, y: { ticks: { color: '#cbd5e1' }, grid: { color: 'rgba(255,255,255,0.08)' } } } }
     });
   }
-  if (demo && document.getElementById('demoChart')) {
-    new Chart(document.getElementById('demoChart'), {
-      type: 'pie',
+  // Membership mix pie
+  if (demo && document.getElementById('pieMembers')) {
+    const pieData = [
+      demo.men||0, demo.women||0, demo.youth_boys||0, demo.youth_girls||0,
+      demo.ya_boys||0, demo.ya_girls||0, demo.children_boys||0, demo.children_girls||0
+    ];
+    const pieSum = pieData.reduce((a,b)=>a+b,0);
+    if (pieSum > 0) {
+      new Chart(document.getElementById('pieMembers'), {
+        type: 'pie',
+        data: {
+          labels: ['Men','Women','Youth boys','Youth girls','YA boys','YA girls','Boys','Girls'],
+          datasets: [{
+            data: pieData,
+            backgroundColor: ['#3b82f6','#ec4899','#60a5fa','#f472b6','#2563eb','#db2777','#93c5fd','#f9a8d4']
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { position: 'bottom', labels: { color: '#e2e8f0', boxWidth: 12 } } }
+        }
+      });
+    }
+  }
+  // By age & sex bar
+  if (demo && document.getElementById('barDemo')) {
+    new Chart(document.getElementById('barDemo'), {
+      type: 'bar',
       data: {
-        labels: ['Men','Women','Youth boys','Youth girls','YA boys','YA girls','Boys','Girls'],
-        datasets: [{ data: [
-          demo.men||0, demo.women||0, demo.youth_boys||0, demo.youth_girls||0,
-          demo.ya_boys||0, demo.ya_girls||0, demo.children_boys||0, demo.children_girls||0
-        ], backgroundColor: ['#3b82f6','#ec4899','#60a5fa','#f472b6','#2563eb','#db2777','#93c5fd','#f9a8d4'] }]
+        labels: ['Men','Women','Youth ♂','Youth ♀','YA ♂','YA ♀','Boys','Girls'],
+        datasets: [{
+          label: 'Members',
+          data: [
+            demo.men||0, demo.women||0, demo.youth_boys||0, demo.youth_girls||0,
+            demo.ya_boys||0, demo.ya_girls||0, demo.children_boys||0, demo.children_girls||0
+          ],
+          backgroundColor: ['#3b82f6','#ec4899','#60a5fa','#f472b6','#2563eb','#db2777','#93c5fd','#f9a8d4']
+        }]
       },
-      options: { responsive: true, plugins: { legend: { position: 'bottom', labels: { color: '#e2e8f0' } } } }
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { ticks: { color: '#cbd5e1' }, grid: { display: false } },
+          y: { ticks: { color: '#cbd5e1' }, grid: { color: 'rgba(255,255,255,0.08)' }, beginAtZero: true }
+        }
+      }
     });
   }
 
