@@ -228,7 +228,25 @@ def seed_knowsoft_bible_church(session: Session) -> None:
             district.pastor_phone = "+234-801-234-5678"
             district.pastor_email = "pastor@knowsoftchurch.org"
             district.weekly_activities_note = "Sunday 8am & 10am · Wednesday Bible study 6pm · Friday prayer 7pm"
+            district.latitude = 6.6018
+            district.longitude = 3.3515
             session.add(district)
+            if global_c:
+                global_c.latitude = 9.0765
+                global_c.longitude = 7.3986
+                session.add(global_c)
+            if country:
+                country.latitude = 9.0820
+                country.longitude = 8.6753
+                session.add(country)
+            if state:
+                state.latitude = 6.5244
+                state.longitude = 3.3792
+                session.add(state)
+            if group:
+                group.latitude = 6.6018
+                group.longitude = 3.3515
+                session.add(group)
             session.commit()
     except Exception as e:
         session.rollback()

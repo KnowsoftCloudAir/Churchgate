@@ -17,7 +17,7 @@
   {% if user %}
   <nav class="sticky top-0 z-40 bg-white border-b border-slate-200 shadow-sm">
     <div class="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between gap-4">
-      {% if user.can_view_church_dashboard %}
+      {% if (user.can_view_church_dashboard if user.can_view_church_dashboard is defined else false) %}
       <a href="/dashboard" class="flex items-center gap-2 font-bold text-navy-900 shrink-0">
       {% else %}
       <a href="/member/portal" class="flex items-center gap-2 font-bold text-navy-900 shrink-0">
@@ -26,7 +26,7 @@
         <span class="hidden sm:inline">Churchgate</span>
       </a>
       <div class="flex items-center gap-1 sm:gap-2 text-sm overflow-x-auto">
-        {% if user.can_view_church_dashboard %}
+        {% if (user.can_view_church_dashboard if user.can_view_church_dashboard is defined else false) %}
         <a href="/dashboard" class="px-3 py-1.5 rounded-lg hover:bg-slate-100 whitespace-nowrap">Dashboard</a>
         {% if user.role in ['church_admin', 'data_officer', 'general_admin'] %}
         <a href="/district/members" class="px-3 py-1.5 rounded-lg hover:bg-slate-100 whitespace-nowrap">Members</a>

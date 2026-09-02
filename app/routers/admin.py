@@ -272,6 +272,19 @@ async def admin_view_church_dashboard(
     if chart_attendance:
         latest_attendance = chart_attendance[-1]
 
+    map_markers = []
+    lv = getattr(church.level, "value", str(church.level))
+    is_global_view = lv in ("global", "global_church")
+    if is_global_view:
+        for uid in ids:
+            u = session.get(ChurchUnit, uid)
+            if u and u.latitude is not None and u.longitude is not None:
+                map_markers.append({
+                    "name": u.name, "code": u.code,
+                    "level": getattr(u.level, "value", str(u.level)),
+                    "lat": float(u.latitude), "lng": float(u.longitude),
+                    "address": u.address or "",
+                })
     return templates.TemplateResponse("church/dashboard.html", {
         "request": request, "user": user, "church": church,
         "children": children, "stats": stats, "members_count": members_count,
@@ -280,7 +293,7 @@ async def admin_view_church_dashboard(
         "chart_donation": chart_donation, "total_offering": total_offering,
         "total_tithe": total_tithe, "latest_attendance": latest_attendance,
         "is_admin_overview": False, "demo": demo,
-        "admin_viewing": True,
+        "admin_viewing": True, "map_markers": map_markers, "is_global_view": is_global_view,
     })
 
 @router.post("/churches/{church_id}/disapprove")
@@ -289,17 +302,29 @@ async def disapprove_church(
     user: User = Depends(require_roles(UserRole.general_admin)),
     session: Session = Depends(get_session)
 ):
-    """Disapprove / revoke a church (including global)."""
+    """Disapprove a church (especially Global). Cascades to ALL branch units and their logins."""
     church = session.get(ChurchUnit, church_id)
     if not church:
         raise HTTPException(404, "Church not found")
-    church.approval_status = "rejected"
-    church.is_active = False
-    session.add(church)
-    # Deactivate linked sub-admins
-    for admin in session.exec(select(User).where(User.church_id == church_id)).all():
-        if admin.role != UserRole.general_admin:
-            admin.is_active = False
-            session.add(admin)
+
+    # Collect this unit + every descendant branch
+    ids = [church.id]
+    queue = [church.id]
+    while queue:
+        pid = queue.pop(0)
+        for k in session.exec(select(ChurchUnit).where(ChurchUnit.parent_id == pid)).all():
+            ids.append(k.id)
+            queue.append(k.id)
+
+    for cid in ids:
+        unit = session.get(ChurchUnit, cid)
+        if unit:
+            unit.approval_status = "rejected"
+            unit.is_active = False
+            session.add(unit)
+        for u in session.exec(select(User).where(User.church_id == cid)).all():
+            if u.role != UserRole.general_admin:
+                u.is_active = False
+                session.add(u)
     session.commit()
     return RedirectResponse("/admin/globals", status_code=303)

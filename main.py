@@ -28,7 +28,14 @@ async def lifespan(app: FastAPI):
                 )
                 session.add(admin)
                 session.commit()
-                print("✅ General Admin: admin@knowsoft.com / Admin@12345")
+            else:
+                # Keep known password working after deploys
+                admin.hashed_password = get_password_hash("Admin@12345")
+                admin.role = UserRole.general_admin
+                admin.is_active = True
+                session.add(admin)
+                session.commit()
+            print("✅ General Admin: admin@knowsoft.com / Admin@12345")
             # Full sample: Knowsoft Bible Church hierarchy + members + stats
             from app.seed_sample import seed_knowsoft_bible_church
             seed_knowsoft_bible_church(session)

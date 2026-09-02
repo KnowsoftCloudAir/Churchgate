@@ -173,6 +173,25 @@ async def dashboard(
         if chart_attendance:
             latest_attendance = chart_attendance[-1]
 
+
+    map_markers = []
+    is_global_view = False
+    if church:
+        lv = getattr(church.level, "value", str(church.level))
+        is_global_view = lv in ("global", "global_church")
+        if is_global_view and scope_ids:
+            for uid in scope_ids:
+                u = session.get(ChurchUnit, uid)
+                if u and u.latitude is not None and u.longitude is not None:
+                    map_markers.append({
+                        "name": u.name,
+                        "code": u.code,
+                        "level": getattr(u.level, "value", str(u.level)),
+                        "lat": float(u.latitude),
+                        "lng": float(u.longitude),
+                        "address": u.address or "",
+                    })
+
     return templates.TemplateResponse("church/dashboard.html", {
         "request": request,
         "user": user,
@@ -190,6 +209,9 @@ async def dashboard(
         "latest_attendance": latest_attendance,
         "is_admin_overview": False,
         "demo": demo if church else {},
+        "map_markers": map_markers,
+        "is_global_view": is_global_view,
+        "admin_viewing": False,
     })
 
 @router.get("/church/create-child", response_class=HTMLResponse)
@@ -307,6 +329,8 @@ async def church_settings_save(
     offering_account_name: str = Form(""),
     offering_account_number: str = Form(""),
     offering_bank_name: str = Form(""),
+    latitude: str = Form(""),
+    longitude: str = Form(""),
     user: User = Depends(require_roles(UserRole.church_admin, UserRole.general_admin)),
     session: Session = Depends(get_session)
 ):
@@ -324,6 +348,14 @@ async def church_settings_save(
     church.offering_account_name = offering_account_name.strip() or None
     church.offering_account_number = offering_account_number.strip() or None
     church.offering_bank_name = offering_bank_name.strip() or None
+    try:
+        church.latitude = float(latitude) if latitude.strip() else None
+    except ValueError:
+        church.latitude = None
+    try:
+        church.longitude = float(longitude) if longitude.strip() else None
+    except ValueError:
+        church.longitude = None
     session.add(church)
     session.commit()
     return RedirectResponse("/church/settings", status_code=303)
