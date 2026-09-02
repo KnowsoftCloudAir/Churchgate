@@ -9,10 +9,16 @@ import secrets
 import string
 
 from app.database import get_session
-from app.models import User, UserRole, ChurchUnit, ChurchLevel, ApprovalStatus, ChurchMember
-from app.auth import set_auth_cookie, clear_auth_cookie, role_val, (
-    verify_password, get_password_hash, create_access_token,
-    get_current_user, ACCESS_TOKEN_EXPIRE_MINUTES
+from app.models import User, UserRole, ChurchUnit, ChurchLevel, ChurchMember
+from app.auth import (
+    set_auth_cookie,
+    clear_auth_cookie,
+    role_val,
+    verify_password,
+    get_password_hash,
+    create_access_token,
+    get_current_user,
+    ACCESS_TOKEN_EXPIRE_MINUTES,
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
