@@ -217,7 +217,7 @@ def seed_knowsoft_bible_church(session: Session) -> None:
         print("   nigeria@knowsoftchurch.org / Church@12345")
         print("   global@knowsoftchurch.org / Church@12345")
         print("   data@allen.knowsoftchurch.org / Data@12345")
-        # Remittance sample on district
+        # Remittance + map coordinates (so global map has markers)
         if district:
             district.tithe_account_name = "Knowsoft Church Allen Tithe"
             district.tithe_account_number = "0123456789"
@@ -228,8 +228,35 @@ def seed_knowsoft_bible_church(session: Session) -> None:
             district.pastor_phone = "+234-801-234-5678"
             district.pastor_email = "pastor@knowsoftchurch.org"
             district.weekly_activities_note = "Sunday 8am & 10am · Wednesday Bible study 6pm · Friday prayer 7pm"
+            district.latitude = 6.6018
+            district.longitude = 3.3515
+            district.country_name = district.country_name or "Nigeria"
+            district.state_name = district.state_name or "Lagos"
             session.add(district)
-            session.commit()
+        if global_c:
+            global_c.latitude = 9.0765
+            global_c.longitude = 7.3986
+            global_c.country_name = global_c.country_name or "Nigeria"
+            session.add(global_c)
+        if country:
+            country.latitude = 9.0820
+            country.longitude = 8.6753
+            country.country_name = country.country_name or "Nigeria"
+            session.add(country)
+        if state:
+            state.latitude = 6.5244
+            state.longitude = 3.3792
+            state.country_name = state.country_name or "Nigeria"
+            state.state_name = state.state_name or "Lagos"
+            session.add(state)
+        if group:
+            group.latitude = 6.6018
+            group.longitude = 3.3515
+            group.country_name = group.country_name or "Nigeria"
+            group.state_name = group.state_name or "Lagos"
+            session.add(group)
+        session.commit()
+        print("✅ Map coordinates set on sample churches")
     except Exception as e:
         session.rollback()
         print(f"⚠️ Sample seed error: {e}")

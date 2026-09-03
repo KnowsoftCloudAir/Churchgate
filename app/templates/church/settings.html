@@ -20,6 +20,28 @@
     <input name="offering_account_number" value="{{ church.offering_account_number or '' }}" placeholder="Account number" class="w-full px-3 py-2 rounded-xl border">
     <input name="offering_bank_name" value="{{ church.offering_bank_name or '' }}" placeholder="Bank" class="w-full px-3 py-2 rounded-xl border">
     <button class="w-full py-3 rounded-xl bg-blue-700 text-white font-semibold">Save</button>
-  </form>
+  
+      <div class="grid sm:grid-cols-2 gap-3 mt-4">
+        <div>
+          <label class="text-sm font-medium text-slate-700">Country (for map)</label>
+          <input name="country_name" value="{{ church.country_name or '' }}" class="w-full mt-1 px-3 py-2 rounded-xl border" placeholder="Nigeria">
+        </div>
+        <div>
+          <label class="text-sm font-medium text-slate-700">State (for map)</label>
+          <input name="state_name" value="{{ church.state_name or '' }}" class="w-full mt-1 px-3 py-2 rounded-xl border" placeholder="Lagos">
+        </div>
+        <div>
+          <label class="text-sm font-medium text-slate-700">Latitude</label>
+          <input name="latitude" type="number" step="any" value="{{ church.latitude if church.latitude is not none else '' }}"
+                 class="w-full mt-1 px-3 py-2 rounded-xl border" placeholder="6.6018">
+        </div>
+        <div>
+          <label class="text-sm font-medium text-slate-700">Longitude</label>
+          <input name="longitude" type="number" step="any" value="{{ church.longitude if church.longitude is not none else '' }}"
+                 class="w-full mt-1 px-3 py-2 rounded-xl border" placeholder="3.3515">
+        </div>
+      </div>
+      <p class="text-xs text-slate-500 mt-2">Latitude &amp; longitude place this church on the global map.</p>
+      </form>
 </div>
 {% endblock %}

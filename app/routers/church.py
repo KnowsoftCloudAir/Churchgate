@@ -31,6 +31,55 @@ def collect_descendant_ids(session: Session, root_id: int) -> list:
     return ids
 
 
+
+# Approximate country centroids for map when a unit has no lat/lng
+
+def build_parent_path(session: Session, unit: ChurchUnit) -> str:
+    """Global > Country > State > Group > District style path."""
+    parts = []
+    cur = unit
+    guard = 0
+    while cur and guard < 10:
+        parts.append(cur.name)
+        if not cur.parent_id:
+            break
+        cur = session.get(ChurchUnit, cur.parent_id)
+        guard += 1
+    return " → ".join(reversed(parts))
+
+
+def user_can_manage_tree(session: Session, user: User, target_church_id: int) -> bool:
+    """True if target is user church or under it (or general admin)."""
+    from app.auth import role_val
+    if role_val(user.role) == "general_admin":
+        return True
+    if not user.church_id:
+        return False
+    if user.church_id == target_church_id:
+        return True
+    return target_church_id in collect_descendant_ids(session, user.church_id)
+
+
+_COUNTRY_COORDS = {
+    "nigeria": (9.0820, 8.6753),
+    "ghana": (7.9465, -1.0232),
+    "kenya": (-1.2921, 36.8219),
+    "south africa": (-30.5595, 22.9375),
+    "united states": (37.0902, -95.7129),
+    "united kingdom": (55.3781, -3.4360),
+    "india": (20.5937, 78.9629),
+    "canada": (56.1304, -106.3468),
+    "australia": (-25.2744, 133.7751),
+    "cameroon": (7.3697, 12.3547),
+    "uganda": (1.3733, 32.2903),
+    "tanzania": (-6.3690, 34.8888),
+    "zambia": (-13.1339, 27.8493),
+    "zimbabwe": (-19.0154, 29.1549),
+    "egypt": (26.8206, 30.8025),
+    "brazil": (-14.2350, -51.9253),
+    "philippines": (12.8797, 121.7740),
+}
+
 @router.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(
     request: Request,
@@ -178,12 +227,22 @@ async def dashboard(
                     u = session.get(ChurchUnit, uid)
                     if not u:
                         continue
-                    if getattr(u, "latitude", None) is not None and getattr(u, "longitude", None) is not None:
+                    lat = getattr(u, "latitude", None)
+                    lng = getattr(u, "longitude", None)
+                    # Fallback: approximate from country name so map is never empty
+                    if lat is None or lng is None:
+                        cn = (u.country_name or "").strip().lower()
+                        if cn in _COUNTRY_COORDS:
+                            lat, lng = _COUNTRY_COORDS[cn]
+                        else:
+                            # skip units with no location at all
+                            lat = lng = None
+                    if lat is not None and lng is not None:
                         try:
                             map_markers.append({
                                 "name": u.name, "code": u.code,
                                 "level": str(getattr(u.level, "value", u.level)),
-                                "lat": float(u.latitude), "lng": float(u.longitude),
+                                "lat": float(lat), "lng": float(lng),
                                 "address": u.address or "",
                                 "country": u.country_name or "", "state": u.state_name or "",
                             })
@@ -339,6 +398,10 @@ async def church_settings_save(
     offering_account_name: str = Form(""),
     offering_account_number: str = Form(""),
     offering_bank_name: str = Form(""),
+    latitude: str = Form(""),
+    longitude: str = Form(""),
+    country_name: str = Form(""),
+    state_name: str = Form(""),
     user: User = Depends(require_roles(UserRole.church_admin, UserRole.general_admin)),
     session: Session = Depends(get_session)
 ):
@@ -356,6 +419,217 @@ async def church_settings_save(
     church.offering_account_name = offering_account_name.strip() or None
     church.offering_account_number = offering_account_number.strip() or None
     church.offering_bank_name = offering_bank_name.strip() or None
+    if country_name.strip():
+        church.country_name = country_name.strip()
+    if state_name.strip():
+        church.state_name = state_name.strip()
+    try:
+        church.latitude = float(latitude) if latitude.strip() else church.latitude
+    except ValueError:
+        pass
+    try:
+        church.longitude = float(longitude) if longitude.strip() else church.longitude
+    except ValueError:
+        pass
     session.add(church)
     session.commit()
     return RedirectResponse("/church/settings", status_code=303)
+
+
+@router.get("/church/network", response_class=HTMLResponse)
+async def church_network(
+    request: Request,
+    user: User = Depends(require_roles(UserRole.church_admin, UserRole.general_admin)),
+    session: Session = Depends(get_session),
+):
+    """List all churches under this unit (esp. districts) with parent tree."""
+    from app.auth import role_val
+    root = None
+    if role_val(user.role) == "general_admin":
+        # Prefer linked church; else first global
+        root = session.get(ChurchUnit, user.church_id) if user.church_id else None
+        if not root:
+            from app.models import ChurchLevel
+            root = session.exec(
+                select(ChurchUnit).where(ChurchUnit.level == ChurchLevel.global_church)
+            ).first()
+    else:
+        root = session.get(ChurchUnit, user.church_id) if user.church_id else None
+    if not root:
+        return templates.TemplateResponse("church/message.html", {
+            "request": request, "user": user,
+            "title": "Network", "message": "No church linked to this account.",
+        })
+    ids = collect_descendant_ids(session, root.id)
+    units = []
+    for uid in ids:
+        u = session.get(ChurchUnit, uid)
+        if not u:
+            continue
+        path = build_parent_path(session, u)
+        lv = str(getattr(u.level, "value", u.level)).lower()
+        units.append({"unit": u, "path": path, "level": lv})
+    # Sort: global, country, state, group, district then name
+    order = {"global": 0, "global_church": 0, "country": 1, "state": 2, "group": 3, "district": 4}
+    units.sort(key=lambda x: (order.get(x["level"], 9), x["unit"].name or ""))
+    districts = [x for x in units if x["level"] == "district"]
+    # Sub-admins under this tree
+    subadmins = []
+    for uid in ids:
+        for u in session.exec(select(User).where(User.church_id == uid)).all():
+            from app.auth import role_val
+            rv = role_val(u.role)
+            if rv in ("church_admin", "data_officer"):
+                ch = session.get(ChurchUnit, u.church_id)
+                subadmins.append({"user": u, "church": ch, "path": build_parent_path(session, ch) if ch else ""})
+    return templates.TemplateResponse("church/network.html", {
+        "request": request, "user": user, "root": root,
+        "units": units, "districts": districts, "subadmins": subadmins,
+    })
+
+
+@router.get("/church/units/{church_id}/dashboard", response_class=HTMLResponse)
+async def view_unit_dashboard(
+    church_id: int,
+    request: Request,
+    user: User = Depends(require_roles(UserRole.church_admin, UserRole.general_admin)),
+    session: Session = Depends(get_session),
+):
+    """Open dashboard for a church in your tree (read-only context of that unit)."""
+    if not user_can_manage_tree(session, user, church_id):
+        raise HTTPException(403, "That church is outside your network")
+    church = session.get(ChurchUnit, church_id)
+    if not church:
+        raise HTTPException(404, "Church not found")
+    ids = collect_descendant_ids(session, church.id)
+    children = list(session.exec(select(ChurchUnit).where(ChurchUnit.parent_id == church.id)).all())
+    try:
+        members_list = list(session.exec(
+            select(ChurchMember).where(
+                ChurchMember.church_id.in_(ids),
+                ChurchMember.approval_status == "approved",
+            )
+        ).all())
+    except Exception:
+        members_list = []
+    members_count = len(members_list)
+    demo = {
+        "men": 0, "women": 0, "youth_boys": 0, "youth_girls": 0,
+        "ya_boys": 0, "ya_girls": 0, "children_boys": 0, "children_girls": 0,
+        "newcomers_men": 0, "newcomers_women": 0, "newcomers_children": 0,
+        "converts_men": 0, "converts_women": 0, "converts_children": 0,
+    }
+    for m in members_list:
+        sex = (str(m.sex or "")).lower()
+        age = str(m.age_category or "")
+        if sex in ("brother", "male"):
+            if age in ("adult", "campus"):
+                demo["men"] += 1
+            elif age == "youth":
+                demo["youth_boys"] += 1
+            elif age == "child":
+                demo["children_boys"] += 1
+            if age == "campus":
+                demo["ya_boys"] += 1
+        elif sex in ("sister", "female"):
+            if age in ("adult", "campus"):
+                demo["women"] += 1
+            elif age == "youth":
+                demo["youth_girls"] += 1
+            elif age == "child":
+                demo["children_girls"] += 1
+            if age == "campus":
+                demo["ya_girls"] += 1
+    map_markers = []
+    state_summary = []
+    lv = str(getattr(church.level, "value", church.level)).lower()
+    is_global_view = lv in ("global", "global_church")
+    if is_global_view:
+        state_counts = {}
+        for uid in ids:
+            u = session.get(ChurchUnit, uid)
+            if not u:
+                continue
+            lat, lng = getattr(u, "latitude", None), getattr(u, "longitude", None)
+            if lat is None or lng is None:
+                cn = (u.country_name or "").strip().lower()
+                if cn in _COUNTRY_COORDS:
+                    lat, lng = _COUNTRY_COORDS[cn]
+            if lat is not None and lng is not None:
+                map_markers.append({
+                    "name": u.name, "code": u.code,
+                    "level": str(getattr(u.level, "value", u.level)),
+                    "lat": float(lat), "lng": float(lng),
+                    "address": u.address or "",
+                    "country": u.country_name or "", "state": u.state_name or "",
+                })
+            key = (u.country_name or "Unknown", u.state_name or "Unknown")
+            state_counts[key] = state_counts.get(key, 0) + 1
+        state_summary = [{"country": a, "state": b, "count": n} for (a, b), n in sorted(state_counts.items())]
+    return templates.TemplateResponse("church/dashboard.html", {
+        "request": request, "user": user, "church": church,
+        "children": children, "stats": [], "members_count": members_count,
+        "chart_labels": [], "chart_attendance": [], "chart_offering": [],
+        "chart_tithe": [], "chart_donation": [],
+        "total_offering": 0, "total_tithe": 0, "latest_attendance": 0,
+        "is_admin_overview": False, "demo": demo,
+        "map_markers": map_markers, "is_global_view": is_global_view,
+        "state_summary": state_summary, "admin_viewing": True,
+    })
+
+
+@router.post("/church/subadmins/{user_id}/password")
+async def reset_subadmin_password(
+    user_id: int,
+    new_password: str = Form(...),
+    user: User = Depends(require_roles(UserRole.church_admin, UserRole.general_admin)),
+    session: Session = Depends(get_session),
+):
+    target = session.get(User, user_id)
+    if not target or not target.church_id:
+        raise HTTPException(404, "User not found")
+    if not user_can_manage_tree(session, user, target.church_id):
+        raise HTTPException(403, "Outside your network")
+    from app.auth import role_val
+    if role_val(target.role) == "general_admin":
+        raise HTTPException(403, "Cannot change General Admin password here")
+    if len(new_password) < 6:
+        raise HTTPException(400, "Password must be at least 6 characters")
+    target.hashed_password = get_password_hash(new_password)
+    session.add(target)
+    session.commit()
+    return RedirectResponse("/church/network?msg=password_updated", status_code=303)
+
+
+@router.post("/church/subadmins/{user_id}/privileges")
+async def update_subadmin_privileges(
+    user_id: int,
+    can_create_churches: str = Form(""),
+    can_approve_members: str = Form(""),
+    can_enter_stats: str = Form(""),
+    can_see_member_count: str = Form(""),
+    can_view_church_dashboard: str = Form(""),
+    is_active: str = Form("yes"),
+    user: User = Depends(require_roles(UserRole.church_admin, UserRole.general_admin)),
+    session: Session = Depends(get_session),
+):
+    target = session.get(User, user_id)
+    if not target or not target.church_id:
+        raise HTTPException(404, "User not found")
+    if not user_can_manage_tree(session, user, target.church_id):
+        raise HTTPException(403, "Outside your network")
+    from app.auth import role_val
+    if role_val(target.role) == "general_admin":
+        raise HTTPException(403, "Cannot edit General Admin")
+    # Global/country admins may reduce privileges of lower-level admins
+    target.can_create_churches = can_create_churches == "yes"
+    target.can_approve_members = can_approve_members == "yes"
+    target.can_enter_stats = can_enter_stats == "yes"
+    if hasattr(target, "can_see_member_count"):
+        target.can_see_member_count = can_see_member_count == "yes"
+    if hasattr(target, "can_view_church_dashboard"):
+        target.can_view_church_dashboard = can_view_church_dashboard == "yes"
+    target.is_active = is_active == "yes"
+    session.add(target)
+    session.commit()
+    return RedirectResponse("/church/network?msg=privileges_updated", status_code=303)
