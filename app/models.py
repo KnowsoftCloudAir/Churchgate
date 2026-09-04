@@ -387,3 +387,18 @@ class ChurchPayment(SQLModel, table=True):
     confirmed_by: Optional[int] = None
     created_by: Optional[int] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class HomeVideo(SQLModel, table=True):
+    """Global church short video for public home page — expires after 24 hours."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    church_id: int = Field(foreign_key="churchunit.id", index=True)
+    title: Optional[str] = None
+    caption: Optional[str] = Field(default=None, sa_column=Column(Text))
+    file_path: str
+    uploaded_by: Optional[int] = None
+    duration_seconds: Optional[int] = None  # client-reported; target ~30s
+    is_active: bool = Field(default=True)
+    starts_at: datetime = Field(default_factory=datetime.utcnow)
+    ends_at: Optional[datetime] = None  # starts_at + 24h
+    created_at: datetime = Field(default_factory=datetime.utcnow)

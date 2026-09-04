@@ -10,7 +10,7 @@ from pathlib import Path
 from app.database import create_db_and_tables, get_session, engine
 from app.models import User, UserRole
 from app.auth import get_password_hash, get_current_user, verify_password, create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES
-from app.routers import auth, admin, church, district, members, programs, projects, community, payments
+from app.routers import auth, admin, church, district, members, programs, projects, community, payments, videos
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -99,6 +99,7 @@ app.include_router(programs.router)
 app.include_router(projects.router)
 app.include_router(community.router)
 app.include_router(payments.router)
+app.include_router(videos.router)
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request, user: Optional[User] = Depends(get_current_user)):
@@ -163,8 +164,41 @@ async def home(request: Request, user: Optional[User] = Depends(get_current_user
                 })
     except Exception as e:
         print(f"featured load: {e}")
+    home_videos = []
+    try:
+        from datetime import datetime as _dt2
+        from app.models import HomeVideo
+        with Session(engine) as session:
+            now = _dt2.utcnow()
+            vids = list(session.exec(
+                select(HomeVideo).where(HomeVideo.is_active == True)
+                .order_by(HomeVideo.created_at.desc())
+            ).all())
+            for v in vids:
+                if not v.ends_at or v.ends_at <= now:
+                    v.is_active = False
+                    session.add(v)
+                    continue
+                ch = session.get(ChurchUnit, v.church_id)
+                logo = getattr(ch, "logo_url", None) or "" if ch else ""
+                home_videos.append({
+                    "title": v.title or "Message",
+                    "caption": v.caption or "",
+                    "church": ch.name if ch else "",
+                    "church_logo": logo if logo.startswith("/") else (("/" + logo) if logo else ""),
+                    "src": v.file_path if v.file_path.startswith("/") else "/" + v.file_path,
+                    "ends_at": str(v.ends_at),
+                })
+            try:
+                session.commit()
+            except Exception:
+                pass
+    except Exception as e:
+        print(f"home videos: {e}")
     return templates.TemplateResponse("index.html", {
-        "request": request, "user": None, "featured_programs": featured,
+        "request": request, "user": None,
+        "featured_programs": featured,
+        "home_videos": home_videos,
     })
 
 @app.get("/health")
