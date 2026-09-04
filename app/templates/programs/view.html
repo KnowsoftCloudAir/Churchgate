@@ -1,29 +1,32 @@
-{% extends "base.html" %}
-{% block title %}{{ program.title }}{% endblock %}
 {% block content %}
-
-  {% if user and program %}
-  <div class="mb-4 flex flex-wrap gap-2 items-center">
-    {% if program.request_home_display and not program.featured_on_home %}
-    <span class="text-xs px-3 py-1 rounded-full bg-amber-100 text-amber-800">Home display requested — waiting General Admin approval</span>
+<div class="max-w-3xl mx-auto px-4 py-8">
+  {% if can_request_home %}
+  <div class="mb-6 rounded-2xl border-2 border-indigo-200 bg-indigo-50 p-4">
+    <p class="font-semibold text-indigo-900 text-sm mb-1">Public home page showcase</p>
+    <p class="text-xs text-indigo-800/80 mb-3">Only Global church programs can appear on the public landing page. General Admin must approve and set display time (1–24 hours).</p>
+    {% if home_featured %}
+    <p class="text-sm text-emerald-800 font-medium mb-2">✓ Currently approved for the public home page{% if home_ends_at %} until {{ home_ends_at }} UTC{% endif %}.</p>
     <form method="post" action="/programs/{{ program.id }}/cancel-home-request">
-      <button class="text-xs px-3 py-1.5 rounded-lg border">Cancel request</button>
+      <button class="px-4 py-2 rounded-xl border border-red-200 bg-white text-red-700 text-sm font-semibold">Stop home page display</button>
     </form>
-    {% elif program.featured_on_home %}
-    <span class="text-xs px-3 py-1 rounded-full bg-emerald-100 text-emerald-800">On public home page until {{ program.home_display_ends_at }}</span>
+    {% elif home_requested %}
+    <p class="text-sm text-amber-800 font-medium mb-2">⏳ Request sent — waiting for General Admin approval.</p>
     <form method="post" action="/programs/{{ program.id }}/cancel-home-request">
-      <button class="text-xs px-3 py-1.5 rounded-lg border text-red-700">Remove from home request</button>
+      <button class="px-4 py-2 rounded-xl border bg-white text-sm font-semibold">Cancel request</button>
     </form>
     {% else %}
-    <form method="post" action="/programs/{{ program.id }}/request-home"
-          onsubmit="return confirm('Request this Global program on the public home page? General Admin must approve and set display time (≤24h).')">
-      <button class="text-xs px-3 py-1.5 rounded-lg bg-navy-900 text-white font-semibold">Display on home page</button>
+    <form method="post" action="/programs/{{ program.id }}/request-home">
+      <button type="submit" class="px-5 py-2.5 rounded-xl bg-indigo-700 text-white text-sm font-bold shadow hover:bg-indigo-800">
+        Display on home page
+      </button>
     </form>
-    <span class="text-xs text-slate-500">Optional — if you skip this, the program stays on church/children pages only.</span>
+    <p class="text-xs text-slate-600 mt-2">If you do not click this, the program stays on church pages only (members / children units).</p>
     {% endif %}
   </div>
+  {% elif is_global_church %}
+  <p class="mb-4 text-xs text-slate-500">Home page showcase is managed by the Global church admin for this unit.</p>
   {% endif %}
-<div class="max-w-3xl mx-auto px-4 py-8">
+
   <a href="/programs/" class="text-sm text-blue-700 font-medium">← All programs</a>
   <h1 class="text-2xl font-bold text-navy-900 mt-2">{{ program.title }}</h1>
   <p class="text-sm text-slate-500 mb-2">{{ church.name if church else '' }} · {{ program.program_date or '' }} · {{ program.location or '' }}</p>

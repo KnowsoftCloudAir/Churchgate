@@ -91,6 +91,7 @@ async def create_program_page(
 
 @router.post("/create")
 async def create_program(
+    request: Request,
     title: str = Form(...),
     description: str = Form(""),
     program_date: str = Form(""),
@@ -107,6 +108,12 @@ async def create_program(
             pd = date.fromisoformat(program_date)
         except ValueError:
             pass
+    # Global church may request home display at create time
+    form_data = await request.form()
+    want_home = form_data.get("request_home_display") == "yes"
+    church = session.get(ChurchUnit, user.church_id)
+    lv = str(getattr(church.level, "value", church.level)).lower() if church else ""
+    is_global = lv in ("global", "global_church")
     prog = SpecialProgram(
         church_id=user.church_id,
         title=title.strip(),
@@ -116,6 +123,8 @@ async def create_program(
         broadcast_to=broadcast_to,
         created_by=user.id,
         is_active=True,
+        request_home_display=bool(want_home and is_global),
+        featured_on_home=False,
     )
     session.add(prog)
     session.commit()
@@ -149,10 +158,26 @@ async def view_program(
             "likes": len(likes), "liked": liked, "comments": comment_list
         })
     church = session.get(ChurchUnit, prog.church_id)
-    can_upload = user.role in (UserRole.church_admin, UserRole.general_admin)
+    from app.auth import role_val
+    can_upload = role_val(user.role) in ("church_admin", "general_admin", "data_officer")
+    lv = str(getattr(church.level, "value", church.level)).lower() if church else ""
+    is_global_church = lv in ("global", "global_church")
+    can_request_home = is_global_church and (
+        role_val(user.role) in ("church_admin", "general_admin")
+        and (user.church_id == prog.church_id or role_val(user.role) == "general_admin")
+    )
+    # Safe attribute access if DB columns not yet migrated
+    req = bool(getattr(prog, "request_home_display", False))
+    feat = bool(getattr(prog, "featured_on_home", False))
+    ends = getattr(prog, "home_display_ends_at", None)
     return templates.TemplateResponse("programs/view.html", {
         "request": request, "user": user, "program": prog, "church": church,
-        "photos": photo_data, "can_upload": can_upload
+        "photos": photo_data, "can_upload": can_upload,
+        "is_global_church": is_global_church,
+        "can_request_home": can_request_home,
+        "home_requested": req,
+        "home_featured": feat,
+        "home_ends_at": ends,
     })
 
 @router.post("/{program_id}/photo")
@@ -302,10 +327,14 @@ async def request_home_display(
     lv = str(getattr(church.level, "value", church.level)).lower() if church else ""
     if lv not in ("global", "global_church"):
         raise HTTPException(400, "Only Global church programs can be requested for the home page")
-    p.request_home_display = True
+    try:
+        p.request_home_display = True
+    except Exception:
+        raise HTTPException(500, "Database missing home-display columns — redeploy / restart app")
+    p.featured_on_home = False
     session.add(p)
     session.commit()
-    return RedirectResponse(f"/programs/{program_id}", status_code=303)
+    return RedirectResponse(f"/programs/{program_id}?home=requested", status_code=303)
 
 
 @router.post("/{program_id}/cancel-home-request")

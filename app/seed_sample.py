@@ -335,7 +335,8 @@ def seed_knowsoft_bible_church(session: Session) -> None:
                     location="International Conference Centre",
                     broadcast_to="global",
                     is_active=True,
-                    featured_on_home=True,
+                    request_home_display=True,
+                    featured_on_home=False,  # General Admin must approve
                 )
                 session.add(gp)
                 session.commit()
