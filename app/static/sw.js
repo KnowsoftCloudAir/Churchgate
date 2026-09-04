@@ -2,9 +2,9 @@
 const CACHE_NAME = 'churchgate-v1';
 const urlsToCache = [
   '/',
-  '/manifest.json',
-  '/icons/icon-192.png',
-  '/icons/icon-512.png'
+  '/static/manifest.json',
+  '/static/icons/icon-192.png',
+  '/static/icons/icon-512.png'
 ];
 
 // Install event
@@ -39,7 +39,6 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     fetch(event.request)
       .then((response) => {
-        // Clone the response
         const responseToCache = response.clone();
         caches.open(CACHE_NAME)
           .then((cache) => {
