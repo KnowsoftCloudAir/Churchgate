@@ -415,19 +415,3 @@ class ProgramVideo(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
     program: Optional[SpecialProgram] = Relationship(back_populates="videos")
-
-
-class YoutubeChannelLink(SQLModel, table=True):
-    """YouTube channel/video links for home page — Global church or platform admin."""
-    id: Optional[int] = Field(default=None, primary_key=True)
-    church_id: Optional[int] = Field(default=None, foreign_key="churchunit.id", index=True)  # null = General Admin
-    owner_type: str = Field(default="global_church")  # global_church | general_admin
-    title: str = Field(default="YouTube")
-    youtube_url: str
-    youtube_video_id: Optional[str] = None  # extracted for embed
-    is_approved: bool = Field(default=False)
-    is_active: bool = Field(default=True)
-    submitted_by: Optional[int] = None
-    approved_by: Optional[int] = None
-    approved_at: Optional[datetime] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)

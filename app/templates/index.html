@@ -44,24 +44,7 @@
  .church-stage {
  filter: drop-shadow(0 20px 40px rgba(0,0,0,0.4));
  }
- 
- .flip-unit { perspective: 400px; }
- .flip-panel {
-   display: inline-block; min-width: 2.1rem; padding: 0.35rem 0.4rem;
-   background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
-   border: 1px solid rgba(255,255,255,0.12); border-radius: 0.4rem;
-   font-variant-numeric: tabular-nums; font-weight: 700; color: #f8fafc;
-   box-shadow: inset 0 -2px 0 rgba(0,0,0,0.35);
-   transition: transform 0.25s ease, opacity 0.25s ease;
- }
- .flip-panel.tick { animation: flipTick 0.35s ease; }
- @keyframes flipTick {
-   0% { transform: rotateX(0deg); }
-   40% { transform: rotateX(-85deg); opacity: 0.6; }
-   100% { transform: rotateX(0deg); opacity: 1; }
- }
- .stat-pulse { transition: all 0.4s ease; }
-</style>
+ </style>
 </head>
 <body class="font-sans antialiased text-white bg-ink-900 overflow-x-hidden">
  <!-- Nav -->
@@ -119,60 +102,24 @@
  </div>
  </div>
 
- 
- <!-- Live clock + stats + YouTube showcase -->
- <div class="space-y-4" x-data="homeLive()" x-init="boot()">
-   <!-- Flip-style digital clock -->
-   <div class="glass-card rounded-2xl p-4 shadow-lift">
-     <p class="text-sanctum-400 text-xs font-semibold uppercase tracking-wider mb-2">Live time</p>
-     <div class="flex items-center gap-1.5 text-2xl sm:text-3xl font-bold tracking-wider flip-unit">
-       <span class="flip-panel" x-text="hh" :class="tickH && 'tick'"></span>
-       <span class="text-sanctum-400">:</span>
-       <span class="flip-panel" x-text="mm" :class="tickM && 'tick'"></span>
-       <span class="text-sanctum-400">:</span>
-       <span class="flip-panel text-sanctum-400" x-text="ss" :class="tickS && 'tick'"></span>
-     </div>
-   </div>
-   <!-- Running counters -->
-   <div class="glass-card rounded-2xl p-4 grid grid-cols-2 gap-3">
-     <div class="stat-pulse"><p class="text-[10px] uppercase text-slate-400">Churches</p><p class="text-xl font-bold text-white" x-text="fmt(display.churches)"></p></div>
-     <div class="stat-pulse"><p class="text-[10px] uppercase text-slate-400">Countries</p><p class="text-xl font-bold text-white" x-text="fmt(display.countries)"></p></div>
-     <div class="stat-pulse"><p class="text-[10px] uppercase text-slate-400">States</p><p class="text-xl font-bold text-white" x-text="fmt(display.states)"></p></div>
-     <div class="stat-pulse"><p class="text-[10px] uppercase text-slate-400">Members</p><p class="text-xl font-bold text-sanctum-400" x-text="fmt(display.members)"></p></div>
-   </div>
-   <!-- YouTube / published program clips (max ~30s rotation) -->
-   <div class="glass-card rounded-2xl p-4 shadow-lift">
-     <p class="text-sanctum-400 text-xs font-semibold uppercase tracking-wider mb-2">Watch</p>
-     <template x-if="playlist.length">
-       <div>
-         <p class="text-sm font-semibold text-white mb-1" x-text="playlist[yi].title"></p>
-         <p class="text-xs text-slate-400 mb-2" x-text="playlist[yi].church"></p>
-         <button type="button" @click="openYt(playlist[yi])" class="relative w-full group rounded-xl overflow-hidden border border-white/10">
-           <img :src="'https://img.youtube.com/vi/' + playlist[yi].video_id + '/hqdefault.jpg'"
-                class="w-full h-36 object-cover" alt="">
-           <span class="absolute inset-0 flex items-center justify-center bg-black/40 group-hover:bg-black/50">
-             <span class="px-3 py-1.5 rounded-full bg-red-600 text-white text-xs font-bold">▶ Play · enlarge</span>
-           </span>
-         </button>
-         <p class="text-[10px] text-slate-500 mt-2">Rotates every 30 seconds · Global + platform videos</p>
-       </div>
-     </template>
-     <template x-if="!playlist.length">
-       <p class="text-sm text-slate-400">Approved YouTube links and published programs will appear here.</p>
-     </template>
-   </div>
-   <!-- YouTube lightbox -->
-   <div x-show="ytOpen" x-cloak class="fixed inset-0 z-[110] bg-black/90 flex items-center justify-center p-4"
-        @click.self="closeYt()" @keydown.escape.window="closeYt()">
-     <button type="button" @click="closeYt()" class="absolute top-4 right-4 text-white text-sm bg-white/10 px-3 py-1.5 rounded-lg">Close ✕</button>
-     <div class="w-full max-w-4xl aspect-video">
-       <iframe x-show="ytId" class="w-full h-full rounded-xl"
-               :src="ytId ? ('https://www.youtube.com/embed/' + ytId + '?autoplay=1&rel=0') : ''"
-               allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
-     </div>
-   </div>
+ <!-- Feature stack card -->
+ <div class="hidden lg:block space-y-4">
+ <div class="glass-card rounded-2xl p-5 shadow-lift">
+ <p class="text-sanctum-400 text-xs font-semibold uppercase tracking-wider mb-2">Hierarchy</p>
+ <p class="font-semibold text-lg">Global → Country → State → Group → District</p>
+ <p class="text-sm text-slate-400 mt-1">District is the primary unit; data flows upward.</p>
  </div>
-
+ <div class="glass-card rounded-2xl p-5">
+ <p class="text-sanctum-400 text-xs font-semibold uppercase tracking-wider mb-2">Members</p>
+ <p class="font-semibold">Join online · Pastor approves · Roles assigned</p>
+ <p class="text-sm text-slate-400 mt-1">Worker, leader, pastor status under your district.</p>
+ </div>
+ <div class="glass-card rounded-2xl p-5">
+ <p class="text-sanctum-400 text-xs font-semibold uppercase tracking-wider mb-2">Programs</p>
+ <p class="font-semibold">Broadcast services · Photos for members only</p>
+ <p class="text-sm text-slate-400 mt-1">Like, comment and download inside your church family.</p>
+ </div>
+ </div>
  </div>
  </section>
 
@@ -366,54 +313,5 @@
  onerror="this.style.display='none'">
  <p>© Knowsoft Churchgate · For the Body of Christ</p>
  </footer>
-
-<script>
-function homeLive() {
-  const base = {{ live_stats|default({"churches":12,"countries":3,"states":8,"members":500})|tojson }};
-  const clips = {{ youtube_clips|default([])|tojson }};
-  return {
-    hh: "00", mm: "00", ss: "00",
-    tickH: false, tickM: false, tickS: false,
-    display: { churches: base.churches, countries: base.countries, states: base.states, members: base.members },
-    target: base,
-    playlist: clips,
-    yi: 0,
-    ytOpen: false,
-    ytId: "",
-    boot() {
-      this.tickClock();
-      setInterval(() => this.tickClock(), 1000);
-      setInterval(() => this.jitterStats(), 1800);
-      if (this.playlist.length > 1) {
-        setInterval(() => { this.yi = (this.yi + 1) % this.playlist.length; }, 30000);
-      }
-    },
-    pad(n) { return String(n).padStart(2, "0"); },
-    tickClock() {
-      const d = new Date();
-      const h = this.pad(d.getHours()), m = this.pad(d.getMinutes()), s = this.pad(d.getSeconds());
-      this.tickS = true; this.ss = s;
-      if (m !== this.mm) { this.tickM = true; this.mm = m; }
-      if (h !== this.hh) { this.tickH = true; this.hh = h; }
-      setTimeout(() => { this.tickS = false; this.tickM = false; this.tickH = false; }, 280);
-      this.ss = s; this.mm = m; this.hh = h;
-    },
-    jitterStats() {
-      // dramatic but returns toward real targets
-      const j = (t) => Math.max(1, Math.round(t * (0.85 + Math.random() * 0.45)));
-      this.display = {
-        churches: j(this.target.churches),
-        countries: j(this.target.countries),
-        states: j(this.target.states),
-        members: j(this.target.members),
-      };
-    },
-    fmt(n) { return (n || 0).toLocaleString(); },
-    openYt(item) { this.ytId = item.video_id; this.ytOpen = true; },
-    closeYt() { this.ytOpen = false; this.ytId = ""; },
-  };
-}
-</script>
-
 </body>
 </html>
