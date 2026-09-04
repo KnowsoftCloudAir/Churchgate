@@ -156,10 +156,25 @@
                </div>
              </div>
              <div class="order-1 sm:order-2">
-               <template x-if="item.photo">
-                 <img :src="item.photo" :alt="item.title" class="w-full h-48 sm:h-56 object-cover rounded-2xl border border-white/10">
+               <template x-if="item.video">
+                 <button type="button" @click="openMedia(item.video, 'video', item.title)"
+                         class="relative w-full group text-left">
+                   <video :src="item.video" muted playsinline class="w-full h-48 sm:h-56 object-cover rounded-2xl border border-white/10 bg-black pointer-events-none"></video>
+                   <span class="absolute inset-0 flex items-center justify-center bg-black/30 group-hover:bg-black/40 rounded-2xl transition">
+                     <span class="px-3 py-1.5 rounded-full bg-white/90 text-ink-900 text-xs font-bold">▶ Enlarge video</span>
+                   </span>
+                 </button>
                </template>
-               <template x-if="!item.photo">
+               <template x-if="!item.video && item.photo">
+                 <button type="button" @click="openMedia(item.photo, 'image', item.title)"
+                         class="relative w-full group text-left">
+                   <img :src="item.photo" :alt="item.title" class="w-full h-48 sm:h-56 object-cover rounded-2xl border border-white/10">
+                   <span class="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 bg-black/35 rounded-2xl transition">
+                     <span class="px-3 py-1.5 rounded-full bg-white/90 text-ink-900 text-xs font-bold">Enlarge photo</span>
+                   </span>
+                 </button>
+               </template>
+               <template x-if="!item.video && !item.photo">
                  <div class="w-full h-48 sm:h-56 rounded-2xl bg-gradient-to-br from-ink-700 to-ink-900 border border-white/10 flex items-center justify-center">
                    <span class="text-slate-500 text-sm">Program highlight</span>
                  </div>
@@ -169,6 +184,25 @@
          </div>
        </template>
      </div>
+
+     <!-- Enlarge lightbox -->
+     <div x-show="lightbox" x-cloak
+          class="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/85"
+          @keydown.escape.window="closeMedia()"
+          @click.self="closeMedia()">
+       <button type="button" @click="closeMedia()"
+               class="absolute top-4 right-4 text-white text-sm font-semibold bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-lg">Close ✕</button>
+       <div class="max-w-5xl w-full max-h-[90vh] flex flex-col items-center gap-3">
+         <p class="text-white text-sm font-medium" x-text="lbTitle"></p>
+         <template x-if="lbType === 'video'">
+           <video :src="lbSrc" controls autoplay playsinline class="max-h-[80vh] w-full rounded-xl bg-black"></video>
+         </template>
+         <template x-if="lbType === 'image'">
+           <img :src="lbSrc" :alt="lbTitle" class="max-h-[80vh] w-auto max-w-full rounded-xl object-contain">
+         </template>
+       </div>
+     </div>
+
      <div class="flex justify-center gap-2 mt-6" x-show="items.length > 1">
        <template x-for="(item, i) in items" :key="'dot'+i">
          <button type="button" @click="active = i; restart()"
@@ -185,10 +219,26 @@
      active: 0,
      timer: null,
      items: {{ featured_programs|tojson }},
+     lightbox: false,
+     lbSrc: '',
+     lbType: 'image',
+     lbTitle: '',
+     openMedia(src, type, title) {
+       this.lbSrc = src;
+       this.lbType = type || 'image';
+       this.lbTitle = title || '';
+       this.lightbox = true;
+       if (this.timer) clearInterval(this.timer);
+     },
+     closeMedia() {
+       this.lightbox = false;
+       this.lbSrc = '';
+       this.restart();
+     },
      start() {
        if (!this.items || this.items.length < 2) return;
        this.timer = setInterval(() => {
-         this.active = (this.active + 1) % this.items.length;
+         if (!this.lightbox) this.active = (this.active + 1) % this.items.length;
        }, 20000);
      },
      restart() {
@@ -200,32 +250,7 @@
  </script>
  {% endif %}
 
- {% if home_videos %}
- <section class="border-y border-white/10 bg-ink-900/90 py-12"
-          x-data="{ vi: 0, clips: {{ home_videos|tojson }} }"
-          x-init="if (clips.length > 1) setInterval(() => { vi = (vi + 1) % clips.length }, 30000)">
-   <div class="max-w-4xl mx-auto px-4 sm:px-6">
-     <p class="text-sanctum-400 text-xs font-semibold uppercase tracking-wider mb-1">From Global churches</p>
-     <h2 class="font-display text-2xl font-bold text-white mb-2">Short messages (24 hours)</h2>
-     <p class="text-sm text-slate-400 mb-6">About 30 seconds each · offline automatically after 24 hours</p>
-     <template x-for="(clip, i) in clips" :key="i">
-       <div x-show="i === vi || clips.length === 1" x-transition class="rounded-3xl overflow-hidden border border-white/10 glass-card mb-4">
-         <div class="flex items-center gap-3 p-4 border-b border-white/10">
-           <template x-if="clip.church_logo">
-             <img :src="clip.church_logo" class="h-10 w-10 object-contain rounded-lg bg-white/10 p-1" alt="">
-           </template>
-           <div>
-             <p class="text-white font-semibold text-sm" x-text="clip.title"></p>
-             <p class="text-sanctum-400 text-xs" x-text="clip.church"></p>
-           </div>
-         </div>
-         <video :src="clip.src" controls playsinline class="w-full max-h-[420px] bg-black"></video>
-         <p class="text-sm text-slate-300 p-4" x-show="clip.caption" x-text="clip.caption"></p>
-       </div>
-     </template>
-   </div>
- </section>
- {% endif %}
+ 
 
 
 

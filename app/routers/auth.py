@@ -10,7 +10,7 @@ import string
 
 from app.database import get_session
 from app.models import User, UserRole, ChurchUnit, ChurchLevel, ApprovalStatus, ChurchMember
-from app.auth import role_val, verify_password, get_password_hash, create_access_token, get_current_user, ACCESS_TOKEN_EXPIRE_MINUTES
+from app.auth import require_user, role_val, verify_password, get_password_hash, create_access_token, get_current_user, ACCESS_TOKEN_EXPIRE_MINUTES
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent.parent / "templates"))
@@ -246,3 +246,48 @@ async def logout():
     resp = RedirectResponse("/auth/login", status_code=303)
     resp.delete_cookie("access_token")
     return resp
+
+
+@router.get("/change-password", response_class=HTMLResponse)
+async def change_password_page(
+    request: Request,
+    user: User = Depends(require_user),
+):
+    return templates.TemplateResponse("auth/change_password.html", {
+        "request": request, "user": user, "error": None, "success": None,
+    })
+
+
+@router.post("/change-password", response_class=HTMLResponse)
+async def change_password_submit(
+    request: Request,
+    current_password: str = Form(...),
+    new_password: str = Form(...),
+    confirm_password: str = Form(...),
+    user: User = Depends(require_user),
+    session: Session = Depends(get_session),
+):
+    """Any logged-in user including General Admin can change their password."""
+    if not verify_password(current_password, user.hashed_password):
+        return templates.TemplateResponse("auth/change_password.html", {
+            "request": request, "user": user,
+            "error": "Current password is incorrect", "success": None,
+        }, status_code=400)
+    if len(new_password) < 8:
+        return templates.TemplateResponse("auth/change_password.html", {
+            "request": request, "user": user,
+            "error": "New password must be at least 8 characters", "success": None,
+        }, status_code=400)
+    if new_password != confirm_password:
+        return templates.TemplateResponse("auth/change_password.html", {
+            "request": request, "user": user,
+            "error": "New passwords do not match", "success": None,
+        }, status_code=400)
+    db_user = session.get(User, user.id)
+    db_user.hashed_password = get_password_hash(new_password)
+    session.add(db_user)
+    session.commit()
+    return templates.TemplateResponse("auth/change_password.html", {
+        "request": request, "user": user,
+        "error": None, "success": "Password updated successfully.",
+    })

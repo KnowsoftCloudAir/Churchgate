@@ -9,7 +9,7 @@ import uuid, shutil
 from app.database import get_session
 from app.models import (
     User, UserRole, ChurchUnit, ChurchLevel, SpecialProgram, ProgramPhoto,
-    PhotoLike, PhotoComment, ChurchMember
+    PhotoLike, PhotoComment, ChurchMember, ProgramVideo,
 )
 from app.auth import require_user, require_roles
 
@@ -17,6 +17,8 @@ router = APIRouter(prefix="/programs", tags=["programs"])
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent.parent / "templates"))
 UPLOAD = Path("app/static/uploads/programs")
 UPLOAD.mkdir(parents=True, exist_ok=True)
+VIDEO_UPLOAD = Path("app/static/uploads/program_videos")
+VIDEO_UPLOAD.mkdir(parents=True, exist_ok=True)
 
 def member_scope_church_ids(user: User, session: Session) -> set:
     """Churches whose program photos this member may see (state, group, district of their tree)."""
@@ -157,6 +159,11 @@ async def view_program(
             "id": ph.id, "path": ph.file_path, "caption": ph.caption,
             "likes": len(likes), "liked": liked, "comments": comment_list
         })
+    videos = list(session.exec(
+        select(ProgramVideo).where(ProgramVideo.program_id == program_id)
+        .order_by(ProgramVideo.created_at.desc())
+    ).all())
+    video_data = [{"id": v.id, "path": v.file_path, "caption": v.caption} for v in videos]
     church = session.get(ChurchUnit, prog.church_id)
     from app.auth import role_val
     can_upload = role_val(user.role) in ("church_admin", "general_admin", "data_officer")
@@ -172,7 +179,7 @@ async def view_program(
     ends = getattr(prog, "home_display_ends_at", None)
     return templates.TemplateResponse("programs/view.html", {
         "request": request, "user": user, "program": prog, "church": church,
-        "photos": photo_data, "can_upload": can_upload,
+        "photos": photo_data, "videos": video_data, "can_upload": can_upload,
         "is_global_church": is_global_church,
         "can_request_home": can_request_home,
         "home_requested": req,
@@ -188,6 +195,18 @@ def _can_manage_program(user: User, prog: SpecialProgram) -> bool:
     if rv in ("church_admin", "data_officer") and user.church_id == prog.church_id:
         return True
     return False
+
+
+def _delete_video_files_and_rows(session: Session, program_id: int):
+    for v in list(session.exec(select(ProgramVideo).where(ProgramVideo.program_id == program_id)).all()):
+        try:
+            p = Path("app/static/uploads/program_videos") / Path(v.file_path).name
+            if p.exists():
+                p.unlink(missing_ok=True)
+        except Exception:
+            pass
+        session.delete(v)
+    session.commit()
 
 
 def _delete_photo_files_and_rows(session: Session, program_id: int):
@@ -233,8 +252,9 @@ async def upload_photo(
     had_photo = session.exec(select(ProgramPhoto).where(ProgramPhoto.program_id == program_id)).first() is not None
     was_home = bool(getattr(prog, "featured_on_home", False) or getattr(prog, "request_home_display", False))
 
-    # Replace: remove previous photos first
+    # One media only: photo replaces any existing photo AND removes video
     _delete_photo_files_and_rows(session, program_id)
+    _delete_video_files_and_rows(session, program_id)
 
     ext = (file.filename or "img.jpg").rsplit(".", 1)[-1].lower()
     if ext not in ("jpg", "jpeg", "png", "gif", "webp"):
@@ -253,7 +273,7 @@ async def upload_photo(
 
     # New picture → new home approval cycle for Global showcase
     if was_home or had_photo:
-        from app.models import ChurchUnit
+        from app.models import ProgramVideo, ChurchUnit
         church = session.get(ChurchUnit, prog.church_id)
         lv = str(getattr(church.level, "value", church.level)).lower() if church else ""
         if lv in ("global", "global_church"):
@@ -333,6 +353,14 @@ async def delete_program(
     if rv != "general_admin" and not (rv == "church_admin" and user.church_id == prog.church_id):
         raise HTTPException(403, "Only the owning church admin can delete this program")
     _delete_photo_files_and_rows(session, program_id)
+    for v in session.exec(select(ProgramVideo).where(ProgramVideo.program_id == program_id)).all():
+        try:
+            vp = Path("app/static/uploads/program_videos") / Path(v.file_path).name
+            if vp.exists():
+                vp.unlink(missing_ok=True)
+        except Exception:
+            pass
+        session.delete(v)
     session.delete(prog)
     session.commit()
     return RedirectResponse("/programs/", status_code=303)
@@ -435,6 +463,85 @@ async def delete_photo_comment(
     ph = session.get(ProgramPhoto, pid)
     return RedirectResponse(f"/programs/{ph.program_id}" if ph else "/programs/", status_code=303)
 
+
+
+
+@router.post("/{program_id}/video")
+async def upload_program_video(
+    program_id: int,
+    caption: str = Form(""),
+    file: UploadFile = File(...),
+    user: User = Depends(require_roles(UserRole.church_admin, UserRole.general_admin, UserRole.data_officer)),
+    session: Session = Depends(get_session),
+):
+    """Staff can attach a short video to a program (MP4/WebM)."""
+    prog = session.get(SpecialProgram, program_id)
+    if not prog:
+        raise HTTPException(404, "Program not found")
+    if not _can_manage_program(user, prog):
+        raise HTTPException(403, "Not your church program")
+    name = (file.filename or "").lower()
+    ct = (file.content_type or "")
+    if not (ct.startswith("video/") or name.endswith((".mp4", ".webm", ".mov"))):
+        raise HTTPException(400, "Please upload a video file (MP4 or WebM)")
+    was_home = bool(getattr(prog, "featured_on_home", False) or getattr(prog, "request_home_display", False))
+    # One media only: video replaces any existing video AND removes photos
+    _delete_video_files_and_rows(session, program_id)
+    _delete_photo_files_and_rows(session, program_id)
+
+    data = await file.read()
+    if len(data) > 40 * 1024 * 1024:
+        raise HTTPException(400, "Video too large (max 40 MB)")
+    ext = name.rsplit(".", 1)[-1] if "." in name else "mp4"
+    if ext not in ("mp4", "webm", "mov"):
+        ext = "mp4"
+    fname = f"progvid_{program_id}_{uuid.uuid4().hex[:8]}.{ext}"
+    dest = VIDEO_UPLOAD / fname
+    dest.write_bytes(data)
+    session.add(ProgramVideo(
+        program_id=program_id,
+        file_path=f"/static/uploads/program_videos/{fname}",
+        caption=caption.strip() or None,
+        uploaded_by=user.id,
+    ))
+    # Media change → re-request home approval for Global programs
+    from app.models import ChurchUnit
+    church = session.get(ChurchUnit, prog.church_id)
+    lv = str(getattr(church.level, "value", church.level)).lower() if church else ""
+    if was_home or lv in ("global", "global_church"):
+        if lv in ("global", "global_church") and was_home:
+            prog.request_home_display = True
+            prog.featured_on_home = False
+            prog.home_display_hours = None
+            prog.home_display_starts_at = None
+            prog.home_display_ends_at = None
+            session.add(prog)
+    session.commit()
+    return RedirectResponse(f"/programs/{program_id}", status_code=303)
+
+
+@router.post("/video/{video_id}/delete")
+async def delete_program_video(
+    video_id: int,
+    user: User = Depends(require_roles(UserRole.church_admin, UserRole.general_admin, UserRole.data_officer)),
+    session: Session = Depends(get_session),
+):
+    v = session.get(ProgramVideo, video_id)
+    if not v:
+        raise HTTPException(404, "Video not found")
+    prog = session.get(SpecialProgram, v.program_id)
+    if not prog or not _can_manage_program(user, prog):
+        raise HTTPException(403, "Not allowed")
+    pid = v.program_id
+    try:
+        p = Path("app/static/uploads/program_videos") / Path(v.file_path).name
+        if p.exists():
+            p.unlink(missing_ok=True)
+    except Exception:
+        pass
+    session.delete(v)
+    session.commit()
+    return RedirectResponse(f"/programs/{pid}", status_code=303)
 
 @router.post("/{program_id}/request-home")
 async def request_home_display(

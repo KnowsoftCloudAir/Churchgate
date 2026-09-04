@@ -179,6 +179,7 @@ class SpecialProgram(SQLModel, table=True):
 
     church: Optional[ChurchUnit] = Relationship(back_populates="programs")
     photos: List["ProgramPhoto"] = Relationship(back_populates="program")
+    videos: List["ProgramVideo"] = Relationship(back_populates="program")
 
 class ProgramPhoto(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -402,3 +403,15 @@ class HomeVideo(SQLModel, table=True):
     starts_at: datetime = Field(default_factory=datetime.utcnow)
     ends_at: Optional[datetime] = None  # starts_at + 24h
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ProgramVideo(SQLModel, table=True):
+    """Short video attached to a special program (staff upload)."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    program_id: int = Field(foreign_key="specialprogram.id", index=True)
+    file_path: str
+    caption: Optional[str] = None
+    uploaded_by: Optional[int] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    program: Optional[SpecialProgram] = Relationship(back_populates="videos")
