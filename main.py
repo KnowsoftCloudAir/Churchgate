@@ -17,6 +17,7 @@ async def lifespan(app: FastAPI):
     create_db_and_tables()
     try:
         with Session(engine) as session:
+            # Always ensure General Admin exists with known password
             admin = session.exec(select(User).where(User.email == "admin@knowsoft.com")).first()
             if not admin:
                 admin = User(
@@ -27,13 +28,44 @@ async def lifespan(app: FastAPI):
                     is_active=True
                 )
                 session.add(admin)
-                session.commit()
-                print("✅ General Admin: admin@knowsoft.com / Admin@12345")
-            # Full sample: Knowsoft Bible Church hierarchy + members + stats
-            from app.seed_sample import seed_knowsoft_bible_church
+            else:
+                admin.hashed_password = get_password_hash("Admin@12345")
+                admin.is_active = True
+                admin.role = UserRole.general_admin
+                session.add(admin)
+            session.commit()
+            print("✅ General Admin ready: admin@knowsoft.com / Admin@12345")
+
+            # Hierarchy + sample sub-admins
+            from app.seed_sample import seed_knowsoft_bible_church, SAMPLE_PASSWORD, DATA_PASSWORD, _ensure_admin
             seed_knowsoft_bible_church(session)
+
+            # Force-reset sample passwords every boot (fixes old/wrong hashes on Render)
+            from app.models import ChurchUnit
+            samples = [
+                ("global@knowsoftchurch.org", "Apostle David Knowsoft", "KC-GLOBAL", SAMPLE_PASSWORD, UserRole.church_admin, False),
+                ("nigeria@knowsoftchurch.org", "Rev. Samuel Okonkwo", "KC-NG", SAMPLE_PASSWORD, UserRole.church_admin, False),
+                ("lagos@knowsoftchurch.org", "Pastor Grace Adeyemi", "KC-NG-LAG", SAMPLE_PASSWORD, UserRole.church_admin, False),
+                ("ikeja@knowsoftchurch.org", "Pastor Michael Bello", "KC-NG-LAG-IKE", SAMPLE_PASSWORD, UserRole.church_admin, False),
+                ("allen@knowsoftchurch.org", "Pastor Ruth Okoro", "KC-NG-LAG-IKE-ALLEN", SAMPLE_PASSWORD, UserRole.church_admin, False),
+                ("data@allen.knowsoftchurch.org", "Bro. James Data Officer", "KC-NG-LAG-IKE-ALLEN", DATA_PASSWORD, UserRole.data_officer, True),
+            ]
+            for email, name, code, pwd, role, stats in samples:
+                unit = session.exec(select(ChurchUnit).where(ChurchUnit.code == code)).first()
+                if unit:
+                    unit.approval_status = "approved"
+                    unit.is_active = True
+                    session.add(unit)
+                    session.commit()
+                    _ensure_admin(session, email, name, unit.id, role, pwd, stats)
+            print("✅ Sample logins reset:")
+            print("   global@knowsoftchurch.org / Church@12345")
+            print("   allen@knowsoftchurch.org / Church@12345")
+            print("   (and other hierarchy admins)")
     except Exception as e:
         print(f"⚠️ Seed: {e}")
+        import traceback
+        traceback.print_exc()
     yield
 
 app = FastAPI(

@@ -45,7 +45,8 @@ async def login(
     # Church admins must belong to an approved church
     if role_val(user.role) == "church_admin" and user.church_id:
         church = session.get(ChurchUnit, user.church_id)
-        if church and church.approval_status != "approved":
+        status = (church.approval_status or "approved") if church else "approved"
+        if church and status not in ("approved",):
             return templates.TemplateResponse("auth/login.html", {
                 "request": request, "error": "Your church is still pending approval by Knowsoft Admin."
             }, status_code=400)
