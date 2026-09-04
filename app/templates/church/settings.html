@@ -3,6 +3,27 @@
 {% block content %}
 <div class="max-w-lg mx-auto px-4 py-8">
   <h1 class="text-xl font-bold mb-2">Church public details</h1>
+
+  <div class="bg-white rounded-2xl border p-5 mb-6 shadow-sm">
+    <h2 class="font-semibold text-navy-900 mb-1">Church logo</h2>
+    <p class="text-xs text-slate-500 mb-3">Shown on your church pages and on public home-page program adverts (Global programs).</p>
+    {% if church.logo_url %}
+    <div class="flex flex-wrap items-center gap-4 mb-3">
+      <img src="{{ church.logo_url }}" alt="Logo" class="h-20 w-20 object-contain rounded-xl border bg-white p-1">
+      <form method="post" action="/church/settings/logo/remove" onsubmit="return confirm('Remove logo?')">
+        <button class="text-sm text-red-600 font-semibold">Remove logo</button>
+      </form>
+    </div>
+    {% endif %}
+    <form method="post" action="/church/settings/logo" enctype="multipart/form-data" class="flex flex-col sm:flex-row gap-3 items-stretch sm:items-end">
+      <div class="flex-1">
+        <label class="text-xs font-semibold text-slate-600">Upload image (PNG, JPG, WEBP)</label>
+        <input type="file" name="file" accept="image/*" required class="w-full mt-1 text-sm">
+      </div>
+      <button class="px-4 py-2.5 rounded-xl bg-indigo-700 text-white text-sm font-semibold">Save logo</button>
+    </form>
+  </div>
+
   <p class="text-sm text-slate-500 mb-6">Shown on member dashboards (address, pastor, remittance accounts).</p>
   <form method="post" action="/church/settings" class="bg-white rounded-2xl border p-6 space-y-3">
     <input name="address" value="{{ church.address or '' }}" placeholder="Church address" class="w-full px-3 py-2 rounded-xl border">

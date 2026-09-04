@@ -76,6 +76,9 @@ class ChurchUnit(SQLModel, table=True):
     pastor_phone: Optional[str] = None
     pastor_email: Optional[str] = None
     weekly_activities_note: Optional[str] = Field(default=None, sa_column=Column(Text))
+    logo_url: Optional[str] = None  # Global church brand logo for page + home adverts
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
     approval_status: str = Field(default="pending")
     is_active: bool = Field(default=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -349,4 +352,38 @@ class HeartDistribution(SQLModel, table=True):
     recorded_by: Optional[int] = Field(default=None, foreign_key="user.id")
     beneficiary_affirmed: bool = Field(default=False)
     affirmed_at: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class PaymentSettings(SQLModel, table=True):
+    """Platform payment details filled by General Admin — shown to all church admins."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    title: str = Field(default="Platform subscription / service fee")
+    instructions: Optional[str] = Field(default=None, sa_column=Column(Text))
+    bank_name: Optional[str] = None
+    account_name: Optional[str] = None
+    account_number: Optional[str] = None
+    currency: str = Field(default="NGN")
+    default_amount: float = Field(default=0.0)
+    other_details: Optional[str] = Field(default=None, sa_column=Column(Text))
+    is_active: bool = Field(default=True)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_by: Optional[int] = None
+
+
+class ChurchPayment(SQLModel, table=True):
+    """Invoice / payment record for a church; General Admin confirms and issues receipt."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    church_id: int = Field(foreign_key="churchunit.id", index=True)
+    amount: float = Field(default=0.0)
+    currency: str = Field(default="NGN")
+    description: Optional[str] = Field(default=None, sa_column=Column(Text))
+    status: str = Field(default="pending")  # pending | confirmed | cancelled
+    reference: Optional[str] = Field(default=None, index=True)
+    receipt_number: Optional[str] = None
+    receipt_note: Optional[str] = Field(default=None, sa_column=Column(Text))
+    paid_at: Optional[datetime] = None
+    confirmed_at: Optional[datetime] = None
+    confirmed_by: Optional[int] = None
+    created_by: Optional[int] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)

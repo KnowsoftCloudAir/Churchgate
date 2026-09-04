@@ -1,5 +1,7 @@
+import shutil
+import uuid
 from pathlib import Path
-from fastapi import APIRouter, Depends, Request, Form, HTTPException
+from fastapi import APIRouter, Depends, Request, Form, HTTPException, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlmodel import Session, select
@@ -720,3 +722,67 @@ async def update_subadmin_privileges(
     session.add(target)
     session.commit()
     return RedirectResponse("/church/network?msg=privileges_updated", status_code=303)
+
+
+LOGO_DIR = Path("app/static/uploads/logos")
+LOGO_DIR.mkdir(parents=True, exist_ok=True)
+
+@router.post("/church/settings/logo")
+async def church_logo_upload(
+    file: UploadFile = File(...),
+    user: User = Depends(require_roles(UserRole.church_admin, UserRole.general_admin)),
+    session: Session = Depends(get_session),
+):
+    """Global church (or any church admin) can set a logo shown on their pages and home adverts."""
+    if not user.church_id:
+        raise HTTPException(400, "No church linked")
+    church = session.get(ChurchUnit, user.church_id)
+    if not church:
+        raise HTTPException(404, "Church not found")
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(400, "Images only")
+    ext = (file.filename or "logo.png").rsplit(".", 1)[-1].lower()
+    if ext not in ("jpg", "jpeg", "png", "gif", "webp", "svg"):
+        ext = "png"
+    fname = f"church_{church.id}_{uuid.uuid4().hex[:8]}.{ext}"
+    dest = LOGO_DIR / fname
+    with open(dest, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+    # remove old file if under uploads/logos
+    old = getattr(church, "logo_url", None) or ""
+    if "/static/uploads/logos/" in old:
+        try:
+            Path("app") .joinpath(old.lstrip("/").replace("static/", "static/", 1))
+            p = Path("app/static/uploads/logos") / Path(old).name
+            if p.exists():
+                p.unlink(missing_ok=True)
+        except Exception:
+            pass
+    church.logo_url = f"/static/uploads/logos/{fname}"
+    session.add(church)
+    session.commit()
+    return RedirectResponse("/church/settings", status_code=303)
+
+
+@router.post("/church/settings/logo/remove")
+async def church_logo_remove(
+    user: User = Depends(require_roles(UserRole.church_admin, UserRole.general_admin)),
+    session: Session = Depends(get_session),
+):
+    if not user.church_id:
+        raise HTTPException(400)
+    church = session.get(ChurchUnit, user.church_id)
+    if not church:
+        raise HTTPException(404)
+    old = getattr(church, "logo_url", None) or ""
+    if old:
+        try:
+            p = Path("app/static/uploads/logos") / Path(old).name
+            if p.exists():
+                p.unlink(missing_ok=True)
+        except Exception:
+            pass
+    church.logo_url = None
+    session.add(church)
+    session.commit()
+    return RedirectResponse("/church/settings", status_code=303)

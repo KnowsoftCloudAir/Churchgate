@@ -180,23 +180,65 @@ async def view_program(
         "home_ends_at": ends,
     })
 
+def _can_manage_program(user: User, prog: SpecialProgram) -> bool:
+    from app.auth import role_val
+    rv = role_val(user.role)
+    if rv == "general_admin":
+        return True
+    if rv in ("church_admin", "data_officer") and user.church_id == prog.church_id:
+        return True
+    return False
+
+
+def _delete_photo_files_and_rows(session: Session, program_id: int):
+    """Remove all photos for a program (files + likes/comments + rows)."""
+    photos = list(session.exec(select(ProgramPhoto).where(ProgramPhoto.program_id == program_id)).all())
+    for ph in photos:
+        for like in session.exec(select(PhotoLike).where(PhotoLike.photo_id == ph.id)).all():
+            session.delete(like)
+        for cm in session.exec(select(PhotoComment).where(PhotoComment.photo_id == ph.id)).all():
+            session.delete(cm)
+        # disk file
+        try:
+            rel = (ph.file_path or "").lstrip("/")
+            for candidate in (Path(rel), Path("app") / rel, UPLOAD / Path(rel).name):
+                if candidate.exists() and candidate.is_file():
+                    candidate.unlink(missing_ok=True)
+                    break
+        except Exception:
+            pass
+        session.delete(ph)
+    session.commit()
+
+
 @router.post("/{program_id}/photo")
 async def upload_photo(
     program_id: int,
     caption: str = Form(""),
     file: UploadFile = File(...),
-    user: User = Depends(require_roles(UserRole.church_admin, UserRole.general_admin)),
+    user: User = Depends(require_roles(UserRole.church_admin, UserRole.general_admin, UserRole.data_officer)),
     session: Session = Depends(get_session)
 ):
-    """Only church admin can upload — members cannot."""
+    """Upload program picture. A new upload replaces any existing picture(s).
+    If the program was on the home page (or requested), photo change re-requests General Admin approval.
+    """
     prog = session.get(SpecialProgram, program_id)
     if not prog:
         raise HTTPException(404, "Program not found")
-    if user.role == UserRole.church_admin and prog.church_id != user.church_id:
+    if not _can_manage_program(user, prog):
         raise HTTPException(403, "Not your church program")
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(400, "Images only")
+
+    had_photo = session.exec(select(ProgramPhoto).where(ProgramPhoto.program_id == program_id)).first() is not None
+    was_home = bool(getattr(prog, "featured_on_home", False) or getattr(prog, "request_home_display", False))
+
+    # Replace: remove previous photos first
+    _delete_photo_files_and_rows(session, program_id)
+
     ext = (file.filename or "img.jpg").rsplit(".", 1)[-1].lower()
+    if ext not in ("jpg", "jpeg", "png", "gif", "webp"):
+        ext = "jpg"
     fname = f"prog_{program_id}_{uuid.uuid4().hex[:8]}.{ext}"
     dest = UPLOAD / fname
     with open(dest, "wb") as f:
@@ -208,8 +250,92 @@ async def upload_photo(
         uploaded_by=user.id,
     )
     session.add(ph)
+
+    # New picture → new home approval cycle for Global showcase
+    if was_home or had_photo:
+        from app.models import ChurchUnit
+        church = session.get(ChurchUnit, prog.church_id)
+        lv = str(getattr(church.level, "value", church.level)).lower() if church else ""
+        if lv in ("global", "global_church"):
+            prog.request_home_display = True
+            prog.featured_on_home = False
+            prog.home_display_hours = None
+            prog.home_display_starts_at = None
+            prog.home_display_ends_at = None
+            session.add(prog)
+
     session.commit()
     return RedirectResponse(f"/programs/{program_id}", status_code=303)
+
+
+@router.post("/photo/{photo_id}/caption")
+async def edit_photo_caption(
+    photo_id: int,
+    caption: str = Form(""),
+    user: User = Depends(require_roles(UserRole.church_admin, UserRole.general_admin, UserRole.data_officer)),
+    session: Session = Depends(get_session),
+):
+    ph = session.get(ProgramPhoto, photo_id)
+    if not ph:
+        raise HTTPException(404, "Photo not found")
+    prog = session.get(SpecialProgram, ph.program_id)
+    if not prog or not _can_manage_program(user, prog):
+        raise HTTPException(403, "Not allowed")
+    ph.caption = caption.strip() or None
+    session.add(ph)
+    session.commit()
+    return RedirectResponse(f"/programs/{ph.program_id}", status_code=303)
+
+
+@router.post("/photo/{photo_id}/delete")
+async def delete_program_photo(
+    photo_id: int,
+    user: User = Depends(require_roles(UserRole.church_admin, UserRole.general_admin, UserRole.data_officer)),
+    session: Session = Depends(get_session),
+):
+    ph = session.get(ProgramPhoto, photo_id)
+    if not ph:
+        raise HTTPException(404, "Photo not found")
+    prog = session.get(SpecialProgram, ph.program_id)
+    if not prog or not _can_manage_program(user, prog):
+        raise HTTPException(403, "Not allowed")
+    pid = ph.program_id
+    # delete this one only (then use helper pattern)
+    for like in session.exec(select(PhotoLike).where(PhotoLike.photo_id == ph.id)).all():
+        session.delete(like)
+    for cm in session.exec(select(PhotoComment).where(PhotoComment.photo_id == ph.id)).all():
+        session.delete(cm)
+    try:
+        rel = (ph.file_path or "").lstrip("/")
+        for candidate in (Path(rel), Path("app") / rel, UPLOAD / Path(rel).name):
+            if candidate.exists() and candidate.is_file():
+                candidate.unlink(missing_ok=True)
+                break
+    except Exception:
+        pass
+    session.delete(ph)
+    session.commit()
+    return RedirectResponse(f"/programs/{pid}", status_code=303)
+
+
+@router.post("/{program_id}/delete")
+async def delete_program(
+    program_id: int,
+    user: User = Depends(require_roles(UserRole.church_admin, UserRole.general_admin)),
+    session: Session = Depends(get_session),
+):
+    """Creator church admin or general admin can delete a program that is no longer required."""
+    prog = session.get(SpecialProgram, program_id)
+    if not prog:
+        raise HTTPException(404, "Program not found")
+    from app.auth import role_val
+    rv = role_val(user.role)
+    if rv != "general_admin" and not (rv == "church_admin" and user.church_id == prog.church_id):
+        raise HTTPException(403, "Only the owning church admin can delete this program")
+    _delete_photo_files_and_rows(session, program_id)
+    session.delete(prog)
+    session.commit()
+    return RedirectResponse("/programs/", status_code=303)
 
 @router.get("/photo/{photo_id}/download")
 async def download_photo(
@@ -334,7 +460,7 @@ async def request_home_display(
     p.featured_on_home = False
     session.add(p)
     session.commit()
-    return RedirectResponse(f"/programs/{program_id}?home=requested", status_code=303)
+    return RedirectResponse(f"/programs/{program_id}", status_code=303)
 
 
 @router.post("/{program_id}/cancel-home-request")

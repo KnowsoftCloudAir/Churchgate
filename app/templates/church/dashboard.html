@@ -1,6 +1,12 @@
 {% extends "base.html" %}
 {% block title %}Dashboard – Churchgate{% endblock %}
 {% block content %}
+{% if church and church.logo_url %}
+<div class="max-w-6xl mx-auto px-4 pt-6">
+  <img src="{{ church.logo_url }}" alt="{{ church.name }} logo" class="h-16 w-auto object-contain mb-2">
+</div>
+{% endif %}
+
 <style>
   .dash-bg { background: linear-gradient(160deg, #0f172a 0%, #1e3a8a 55%, #1e40af 100%); }
   .stat-card { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12); }

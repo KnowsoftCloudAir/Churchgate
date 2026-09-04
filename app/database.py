@@ -17,12 +17,24 @@ def create_db_and_tables():
     try:
         from sqlalchemy import text
         cols = [
+            ("logo_url", "VARCHAR"),
+            ("latitude", "FLOAT"),
+            ("longitude", "FLOAT"),
             ("request_home_display", "BOOLEAN DEFAULT 0"),
             ("home_display_hours", "FLOAT"),
             ("home_display_starts_at", "TIMESTAMP"),
             ("home_display_ends_at", "TIMESTAMP"),
         ]
         with engine.begin() as conn:
+            for col, typ in [
+                ("logo_url", "VARCHAR"),
+                ("latitude", "FLOAT"),
+                ("longitude", "FLOAT"),
+            ]:
+                try:
+                    conn.execute(text(f"ALTER TABLE churchunit ADD COLUMN {col} {typ}"))
+                except Exception:
+                    pass
             for col, typ in cols:
                 try:
                     conn.execute(text(f"ALTER TABLE specialprogram ADD COLUMN {col} {typ}"))
