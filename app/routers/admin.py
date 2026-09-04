@@ -264,57 +264,80 @@ async def list_global_churches(
     })
 
 
+
+
 @router.get("/featured-programs", response_class=HTMLResponse)
 async def featured_programs_page(
     request: Request,
     user: User = Depends(require_roles(UserRole.general_admin)),
     session: Session = Depends(get_session),
 ):
-    """Global-level programs that can be shown on the public home page."""
+    """Pending home-page requests + currently live showcase programs."""
+    from datetime import datetime
     all_progs = list(session.exec(
         select(SpecialProgram).where(SpecialProgram.is_active == True)
         .order_by(SpecialProgram.created_at.desc())
     ).all())
-    rows = []
+    pending, live, other = [], [], []
+    now = datetime.utcnow()
     for p in all_progs:
         church = session.get(ChurchUnit, p.church_id)
         if not church:
             continue
         lv = str(getattr(church.level, "value", church.level)).lower()
-        # Only global church units OR programs broadcast globally from a global church
-        is_global_unit = lv in ("global", "global_church")
-        is_global_broadcast = (p.broadcast_to or "").lower() == "global" and is_global_unit
-        if not (is_global_unit or is_global_broadcast):
-            # still allow if broadcast is global and church is global
-            if not (is_global_unit and (p.broadcast_to or "").lower() in ("global", "country", "state", "group", "district")):
-                if not is_global_unit:
-                    continue
-        if not is_global_unit:
+        if lv not in ("global", "global_church"):
             continue
         photo = session.exec(
             select(ProgramPhoto).where(ProgramPhoto.program_id == p.id)
             .order_by(ProgramPhoto.created_at.desc())
         ).first()
-        rows.append({"p": p, "church": church, "photo": photo})
+        row = {"p": p, "church": church, "photo": photo}
+        ends = getattr(p, "home_display_ends_at", None)
+        if p.featured_on_home and ends and ends > now:
+            live.append(row)
+        elif p.featured_on_home and ends and ends <= now:
+            # expired — auto clear
+            p.featured_on_home = False
+            session.add(p)
+            other.append(row)
+        elif getattr(p, "request_home_display", False) and not p.featured_on_home:
+            pending.append(row)
+        else:
+            other.append(row)
+    session.commit()
     return templates.TemplateResponse("admin/featured_programs.html", {
-        "request": request, "user": user, "rows": rows,
+        "request": request, "user": user,
+        "pending": pending, "live": live, "other": other,
     })
 
 
 @router.post("/programs/{program_id}/feature")
 async def feature_program(
     program_id: int,
+    display_hours: float = Form(12),
     user: User = Depends(require_roles(UserRole.general_admin)),
     session: Session = Depends(get_session),
 ):
+    """Approve home display for up to 24 hours."""
+    from datetime import datetime, timedelta
     p = session.get(SpecialProgram, program_id)
     if not p:
         raise HTTPException(404, "Program not found")
     church = session.get(ChurchUnit, p.church_id)
     lv = str(getattr(church.level, "value", church.level)).lower() if church else ""
     if lv not in ("global", "global_church"):
-        raise HTTPException(400, "Only programs from a Global church can appear on the home page")
+        raise HTTPException(400, "Only Global church programs can appear on the home page")
+    try:
+        hours = float(display_hours)
+    except Exception:
+        hours = 12.0
+    hours = max(0.25, min(24.0, hours))  # 15 min to 24 hours
+    now = datetime.utcnow()
+    p.request_home_display = True
     p.featured_on_home = True
+    p.home_display_hours = hours
+    p.home_display_starts_at = now
+    p.home_display_ends_at = now + timedelta(hours=hours)
     session.add(p)
     session.commit()
     return RedirectResponse("/admin/featured-programs", status_code=303)
@@ -330,6 +353,7 @@ async def unfeature_program(
     if not p:
         raise HTTPException(404, "Program not found")
     p.featured_on_home = False
+    p.home_display_ends_at = None
     session.add(p)
     session.commit()
     return RedirectResponse("/admin/featured-programs", status_code=303)

@@ -50,6 +50,20 @@
       </div>
     </div>
   </nav>
+  <div class="bg-slate-100 border-b border-slate-200 text-xs text-slate-600">
+    <div class="max-w-7xl mx-auto px-4 py-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+      <span class="inline-flex items-center gap-1.5">
+        <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" title="Online"></span>
+        <span class="font-medium text-navy-900">{{ user.full_name or user.email }}</span>
+      </span>
+      <span class="text-slate-400">·</span>
+      <span>{{ user.email }}</span>
+      <span class="text-slate-400">·</span>
+      <span class="capitalize">{{ user.role.value if user.role.value is defined else user.role }}</span>
+      <span class="text-slate-400">·</span>
+      <span class="text-emerald-700 font-medium">Online</span>
+    </div>
+  </div>
   {% endif %}
   <main>{% block content %}{% endblock %}</main>
   {% block scripts %}{% endblock %}

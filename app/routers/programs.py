@@ -252,9 +252,8 @@ async def edit_photo_comment(
     cm = session.get(PhotoComment, comment_id)
     if not cm:
         raise HTTPException(404, "Comment not found")
-    from app.auth import role_val
-    is_admin = role_val(user.role) in ("church_admin", "general_admin")
-    if cm.user_id != user.id and not is_admin:
+    # Only the author may edit — never another user (including staff)
+    if cm.user_id != user.id:
         raise HTTPException(403, "You can only edit your own comment")
     body = body.strip()
     if not body:
@@ -284,3 +283,50 @@ async def delete_photo_comment(
     session.commit()
     ph = session.get(ProgramPhoto, pid)
     return RedirectResponse(f"/programs/{ph.program_id}" if ph else "/programs/", status_code=303)
+
+
+@router.post("/{program_id}/request-home")
+async def request_home_display(
+    program_id: int,
+    user: User = Depends(require_roles(UserRole.church_admin, UserRole.general_admin)),
+    session: Session = Depends(get_session),
+):
+    """Global church asks General Admin to show this program on the public home page."""
+    from app.auth import role_val
+    p = session.get(SpecialProgram, program_id)
+    if not p:
+        raise HTTPException(404, "Program not found")
+    if user.church_id != p.church_id and role_val(user.role) != "general_admin":
+        raise HTTPException(403, "Not your program")
+    church = session.get(ChurchUnit, p.church_id)
+    lv = str(getattr(church.level, "value", church.level)).lower() if church else ""
+    if lv not in ("global", "global_church"):
+        raise HTTPException(400, "Only Global church programs can be requested for the home page")
+    p.request_home_display = True
+    session.add(p)
+    session.commit()
+    return RedirectResponse(f"/programs/{program_id}", status_code=303)
+
+
+@router.post("/{program_id}/cancel-home-request")
+async def cancel_home_request(
+    program_id: int,
+    user: User = Depends(require_roles(UserRole.church_admin, UserRole.general_admin)),
+    session: Session = Depends(get_session),
+):
+    """Global church withdraws home-page request (program stays on children pages only)."""
+    from app.auth import role_val
+    p = session.get(SpecialProgram, program_id)
+    if not p:
+        raise HTTPException(404, "Program not found")
+    if user.church_id != p.church_id and role_val(user.role) != "general_admin":
+        raise HTTPException(403, "Not your program")
+    p.request_home_display = False
+    # If not approved yet, fine; if approved, global can also stop wanting it — unfeature
+    p.featured_on_home = False
+    p.home_display_ends_at = None
+    p.home_display_starts_at = None
+    p.home_display_hours = None
+    session.add(p)
+    session.commit()
+    return RedirectResponse(f"/programs/{program_id}", status_code=303)

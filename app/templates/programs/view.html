@@ -1,6 +1,28 @@
 {% extends "base.html" %}
 {% block title %}{{ program.title }}{% endblock %}
 {% block content %}
+
+  {% if user and program %}
+  <div class="mb-4 flex flex-wrap gap-2 items-center">
+    {% if program.request_home_display and not program.featured_on_home %}
+    <span class="text-xs px-3 py-1 rounded-full bg-amber-100 text-amber-800">Home display requested — waiting General Admin approval</span>
+    <form method="post" action="/programs/{{ program.id }}/cancel-home-request">
+      <button class="text-xs px-3 py-1.5 rounded-lg border">Cancel request</button>
+    </form>
+    {% elif program.featured_on_home %}
+    <span class="text-xs px-3 py-1 rounded-full bg-emerald-100 text-emerald-800">On public home page until {{ program.home_display_ends_at }}</span>
+    <form method="post" action="/programs/{{ program.id }}/cancel-home-request">
+      <button class="text-xs px-3 py-1.5 rounded-lg border text-red-700">Remove from home request</button>
+    </form>
+    {% else %}
+    <form method="post" action="/programs/{{ program.id }}/request-home"
+          onsubmit="return confirm('Request this Global program on the public home page? General Admin must approve and set display time (≤24h).')">
+      <button class="text-xs px-3 py-1.5 rounded-lg bg-navy-900 text-white font-semibold">Display on home page</button>
+    </form>
+    <span class="text-xs text-slate-500">Optional — if you skip this, the program stays on church/children pages only.</span>
+    {% endif %}
+  </div>
+  {% endif %}
 <div class="max-w-3xl mx-auto px-4 py-8">
   <a href="/programs/" class="text-sm text-blue-700 font-medium">← All programs</a>
   <h1 class="text-2xl font-bold text-navy-900 mt-2">{{ program.title }}</h1>
@@ -45,20 +67,26 @@
                   <span class="font-semibold text-navy-900">{{ c.user }}</span>
                   <span class="text-slate-400 text-xs ml-1">{{ c.at }}</span>
                 </div>
-                {% if c.user_id == user.id or (user.role.value if user.role.value is defined else user.role) in ['church_admin','general_admin'] %}
                 <div class="flex gap-2 text-xs">
+                  {% if c.user_id == user.id %}
                   <button type="button" @click="editing = !editing" class="text-blue-700 font-medium">Edit</button>
                   <form method="post" action="/programs/photo/comment/{{ c.id }}/delete" onsubmit="return confirm('Delete this comment?')">
                     <button class="text-red-600 font-medium">Delete</button>
                   </form>
+                  {% elif (user.role.value if user.role.value is defined else user.role) in ['church_admin','general_admin'] %}
+                  <form method="post" action="/programs/photo/comment/{{ c.id }}/delete" onsubmit="return confirm('Remove this comment?')">
+                    <button class="text-red-600 font-medium">Remove</button>
+                  </form>
+                  {% endif %}
                 </div>
-                {% endif %}
               </div>
               <p class="text-slate-700 mt-0.5" x-show="!editing">{{ c.body }}</p>
+              {% if c.user_id == user.id %}
               <form method="post" action="/programs/photo/comment/{{ c.id }}/edit" class="mt-2 flex gap-2" x-show="editing" x-cloak>
                 <input name="body" value="{{ c.body }}" required class="flex-1 px-2 py-1.5 rounded border text-sm">
                 <button class="px-3 py-1.5 rounded bg-blue-700 text-white text-xs font-semibold">Save</button>
               </form>
+              {% endif %}
             </li>
             {% else %}
             <li class="text-sm text-slate-400">No comments yet — be the first.</li>

@@ -37,7 +37,7 @@ async def lifespan(app: FastAPI):
             print("✅ General Admin ready: admin@knowsoft.com / Admin@12345")
 
             # Hierarchy + sample sub-admins
-            from app.seed_sample import seed_knowsoft_bible_church, SAMPLE_PASSWORD, DATA_PASSWORD, _ensure_admin
+            from app.seed_sample import seed_knowsoft_bible_church, SAMPLE_PASSWORD, DATA_PASSWORD, _ensure_admin, _ensure_district_sample_data
             seed_knowsoft_bible_church(session)
 
             # Force-reset sample passwords every boot (fixes old/wrong hashes on Render)
@@ -58,6 +58,17 @@ async def lifespan(app: FastAPI):
                     session.add(unit)
                     session.commit()
                     _ensure_admin(session, email, name, unit.id, role, pwd, stats)
+            # Force district sample data every boot
+            try:
+                district = session.exec(select(ChurchUnit).where(ChurchUnit.code == "KC-NG-LAG-IKE-ALLEN")).first()
+                global_c = session.exec(select(ChurchUnit).where(ChurchUnit.code == "KC-GLOBAL")).first()
+                country = session.exec(select(ChurchUnit).where(ChurchUnit.code == "KC-NG")).first()
+                state = session.exec(select(ChurchUnit).where(ChurchUnit.code == "KC-NG-LAG")).first()
+                group = session.exec(select(ChurchUnit).where(ChurchUnit.code == "KC-NG-LAG-IKE")).first()
+                if district:
+                    _ensure_district_sample_data(session, district, global_c, country, state, group)
+            except Exception as de:
+                print(f"⚠️ District sample: {de}")
             print("✅ Sample logins reset:")
             print("   global@knowsoftchurch.org / Church@12345")
             print("   allen@knowsoftchurch.org / Church@12345")
@@ -105,13 +116,23 @@ async def home(request: Request, user: Optional[User] = Depends(get_current_user
         from app.database import engine
         from app.models import SpecialProgram, ProgramPhoto, ChurchUnit, ChurchLevel
         with Session(engine) as session:
+            from datetime import datetime as _dt
+            now = _dt.utcnow()
             progs = list(session.exec(
                 select(SpecialProgram).where(
                     SpecialProgram.featured_on_home == True,
                     SpecialProgram.is_active == True,
-                ).order_by(SpecialProgram.program_date.desc(), SpecialProgram.created_at.desc())
+                ).order_by(SpecialProgram.created_at.desc())
             ).all())
             for p in progs:
+                ends = getattr(p, "home_display_ends_at", None)
+                if ends and ends <= now:
+                    p.featured_on_home = False
+                    session.add(p)
+                    continue
+                if ends is None and getattr(p, "home_display_hours", None):
+                    # legacy without ends_at — skip until re-approved
+                    continue
                 church = session.get(ChurchUnit, p.church_id)
                 if not church:
                     continue
@@ -122,6 +143,10 @@ async def home(request: Request, user: Optional[User] = Depends(get_current_user
                     select(ProgramPhoto).where(ProgramPhoto.program_id == p.id)
                     .order_by(ProgramPhoto.created_at.desc())
                 ).first()
+                try:
+                    session.commit()
+                except Exception:
+                    pass
                 featured.append({
                     "title": p.title,
                     "church": church.name,

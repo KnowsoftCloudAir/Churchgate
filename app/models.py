@@ -166,7 +166,12 @@ class SpecialProgram(SQLModel, table=True):
     broadcast_to: str = Field(default="district")  # district | group | state | country | global
     created_by: Optional[int] = None
     is_active: bool = Field(default=True)
-    featured_on_home: bool = Field(default=False)  # General Admin approval for landing/news flash
+    # Home showcase: global church requests → general admin approves with time limit
+    request_home_display: bool = Field(default=False)  # Global church asked to show on public home
+    featured_on_home: bool = Field(default=False)  # General Admin approved for landing
+    home_display_hours: Optional[float] = Field(default=None)  # approved duration (≤ 24)
+    home_display_starts_at: Optional[datetime] = Field(default=None)
+    home_display_ends_at: Optional[datetime] = Field(default=None)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
     church: Optional[ChurchUnit] = Relationship(back_populates="programs")
