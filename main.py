@@ -10,7 +10,7 @@ from pathlib import Path
 from app.database import create_db_and_tables, get_session, engine
 from app.models import User, UserRole
 from app.auth import get_password_hash, get_current_user, verify_password, create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES
-from app.routers import auth, admin, church, district, members, programs, projects, community, payments
+from app.routers import auth, admin, church, district, members, programs, projects, community, payments, youtube_data
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -99,6 +99,7 @@ app.include_router(programs.router)
 app.include_router(projects.router)
 app.include_router(community.router)
 app.include_router(payments.router)
+app.include_router(youtube_data.router)
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request, user: Optional[User] = Depends(get_current_user)):
@@ -168,9 +169,59 @@ async def home(request: Request, user: Optional[User] = Depends(get_current_user
                 })
     except Exception as e:
         print(f"featured load: {e}")
+    youtube_clips = []
+    live_stats = {"churches": 0, "countries": 0, "states": 0, "members": 0}
+    try:
+        from app.models import YoutubeChannelLink, ChurchMember, ChurchLevel
+        with Session(engine) as session:
+            for L in session.exec(
+                select(YoutubeChannelLink).where(
+                    YoutubeChannelLink.is_approved == True,
+                    YoutubeChannelLink.is_active == True,
+                ).order_by(YoutubeChannelLink.created_at.desc())
+            ).all():
+                if not L.youtube_video_id:
+                    continue
+                ch = session.get(ChurchUnit, L.church_id) if L.church_id else None
+                youtube_clips.append({
+                    "title": L.title or "YouTube",
+                    "church": ch.name if ch else "Knowsoft Churchgate",
+                    "video_id": L.youtube_video_id,
+                    "url": L.youtube_url,
+                })
+            units = list(session.exec(select(ChurchUnit).where(ChurchUnit.is_active == True)).all())
+            countries = set()
+            states = set()
+            n_churches = 0
+            for u in units:
+                if (u.approval_status or "approved") != "approved":
+                    continue
+                n_churches += 1
+                lv = str(getattr(u.level, "value", u.level)).lower()
+                if u.country_name:
+                    countries.add(u.country_name.strip().lower())
+                if "country" in lv:
+                    countries.add((u.name or "").strip().lower())
+                if u.state_name:
+                    states.add(f"{(u.country_name or '')}:{(u.state_name or '')}".lower())
+                if "state" in lv:
+                    states.add((u.name or "").strip().lower())
+            n_members = len(session.exec(
+                select(ChurchMember).where(ChurchMember.approval_status == "approved", ChurchMember.is_active == True)
+            ).all())
+            live_stats = {
+                "churches": max(n_churches, 1),
+                "countries": max(len(countries), 1),
+                "states": max(len(states), 1),
+                "members": max(n_members, 1),
+            }
+    except Exception as e:
+        print(f"home yt/stats: {e}")
     return templates.TemplateResponse("index.html", {
         "request": request, "user": None,
         "featured_programs": featured,
+        "youtube_clips": youtube_clips,
+        "live_stats": live_stats,
     })
 
 @app.get("/health")
