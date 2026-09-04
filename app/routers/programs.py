@@ -142,7 +142,7 @@ async def view_program(
         comment_list = []
         for cm in comments:
             u = session.get(User, cm.user_id)
-            comment_list.append({"body": cm.body, "user": u.full_name if u else "Member", "at": cm.created_at})
+            comment_list.append({"id": cm.id, "body": cm.body, "user": u.full_name if u else "Member", "user_id": cm.user_id, "at": cm.created_at})
         liked = any(l.user_id == user.id for l in likes)
         photo_data.append({
             "id": ph.id, "path": ph.file_path, "caption": ph.caption,
@@ -239,4 +239,48 @@ async def comment_photo(
     session.add(PhotoComment(photo_id=photo_id, user_id=user.id, body=body.strip()))
     session.commit()
     ph = session.get(ProgramPhoto, photo_id)
+    return RedirectResponse(f"/programs/{ph.program_id}" if ph else "/programs/", status_code=303)
+
+
+@router.post("/photo/comment/{comment_id}/edit")
+async def edit_photo_comment(
+    comment_id: int,
+    body: str = Form(...),
+    user: User = Depends(require_user),
+    session: Session = Depends(get_session),
+):
+    cm = session.get(PhotoComment, comment_id)
+    if not cm:
+        raise HTTPException(404, "Comment not found")
+    from app.auth import role_val
+    is_admin = role_val(user.role) in ("church_admin", "general_admin")
+    if cm.user_id != user.id and not is_admin:
+        raise HTTPException(403, "You can only edit your own comment")
+    body = body.strip()
+    if not body:
+        raise HTTPException(400, "Empty comment")
+    cm.body = body
+    session.add(cm)
+    session.commit()
+    ph = session.get(ProgramPhoto, cm.photo_id)
+    return RedirectResponse(f"/programs/{ph.program_id}" if ph else "/programs/", status_code=303)
+
+
+@router.post("/photo/comment/{comment_id}/delete")
+async def delete_photo_comment(
+    comment_id: int,
+    user: User = Depends(require_user),
+    session: Session = Depends(get_session),
+):
+    cm = session.get(PhotoComment, comment_id)
+    if not cm:
+        raise HTTPException(404, "Comment not found")
+    from app.auth import role_val
+    is_admin = role_val(user.role) in ("church_admin", "general_admin")
+    if cm.user_id != user.id and not is_admin:
+        raise HTTPException(403, "You can only delete your own comment")
+    pid = cm.photo_id
+    session.delete(cm)
+    session.commit()
+    ph = session.get(ProgramPhoto, pid)
     return RedirectResponse(f"/programs/{ph.program_id}" if ph else "/programs/", status_code=303)

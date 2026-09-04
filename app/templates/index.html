@@ -123,6 +123,79 @@
  </div>
  </section>
 
+ <!-- Featured Global special programs (approved by General Admin) — 20s each -->
+ {% if featured_programs %}
+ <section class="relative border-y border-white/10 bg-ink-800/80 overflow-hidden" x-data="homeShowcase()" x-init="start()">
+   <div class="max-w-6xl mx-auto px-4 sm:px-6 py-10 sm:py-14">
+     <div class="flex flex-wrap items-end justify-between gap-3 mb-6">
+       <div>
+         <p class="text-sanctum-400 text-xs font-semibold uppercase tracking-wider">Global special programs</p>
+         <h2 class="font-display text-2xl sm:text-3xl font-bold text-white mt-1">Coming up across the body</h2>
+       </div>
+       <p class="text-xs text-slate-400">Each highlight shows for 20 seconds</p>
+     </div>
+     <div class="relative min-h-[280px] sm:min-h-[320px]">
+       <template x-for="(item, i) in items" :key="i">
+         <div x-show="i === active" x-transition:enter="transition ease-out duration-700"
+              x-transition:enter-start="opacity-0 translate-y-3" x-transition:enter-end="opacity-100 translate-y-0"
+              x-transition:leave="transition ease-in duration-400" x-transition:leave-start="opacity-100"
+              x-transition:leave-end="opacity-0" class="absolute inset-0">
+           <div class="grid sm:grid-cols-2 gap-6 items-center glass-card rounded-3xl p-5 sm:p-8 border border-white/10 shadow-lift h-full">
+             <div class="order-2 sm:order-1">
+               <p class="text-sanctum-400 text-sm font-semibold mb-1" x-text="item.church"></p>
+               <h3 class="text-xl sm:text-2xl font-bold text-white mb-3" x-text="item.title"></h3>
+               <p class="text-sm text-slate-300 mb-4" x-show="item.description" x-text="item.description"></p>
+               <div class="flex flex-wrap gap-4 text-sm text-slate-300">
+                 <span x-show="item.date">📅 <span x-text="item.date"></span></span>
+                 <span x-show="item.venue">📍 <span x-text="item.venue"></span></span>
+               </div>
+             </div>
+             <div class="order-1 sm:order-2">
+               <template x-if="item.photo">
+                 <img :src="item.photo" :alt="item.title" class="w-full h-48 sm:h-56 object-cover rounded-2xl border border-white/10">
+               </template>
+               <template x-if="!item.photo">
+                 <div class="w-full h-48 sm:h-56 rounded-2xl bg-gradient-to-br from-ink-700 to-ink-900 border border-white/10 flex items-center justify-center">
+                   <span class="text-slate-500 text-sm">Program highlight</span>
+                 </div>
+               </template>
+             </div>
+           </div>
+         </div>
+       </template>
+     </div>
+     <div class="flex justify-center gap-2 mt-6" x-show="items.length > 1">
+       <template x-for="(item, i) in items" :key="'dot'+i">
+         <button type="button" @click="active = i; restart()"
+                 :class="i === active ? 'bg-sanctum-400' : 'bg-white/20'"
+                 class="w-2.5 h-2.5 rounded-full transition" :aria-label="'Slide '+(i+1)"></button>
+       </template>
+     </div>
+   </div>
+ </section>
+ <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+ <script>
+ function homeShowcase() {
+   return {
+     active: 0,
+     timer: null,
+     items: {{ featured_programs|tojson }},
+     start() {
+       if (!this.items || this.items.length < 2) return;
+       this.timer = setInterval(() => {
+         this.active = (this.active + 1) % this.items.length;
+       }, 20000);
+     },
+     restart() {
+       if (this.timer) clearInterval(this.timer);
+       this.start();
+     }
+   }
+ }
+ </script>
+ {% endif %}
+
+
  <!-- Trust strip -->
  <section class="border-y border-white/5 bg-ink-800/50">
  <div class="max-w-6xl mx-auto px-4 py-8 flex flex-wrap justify-center gap-8 sm:gap-16 text-center text-sm text-slate-400">

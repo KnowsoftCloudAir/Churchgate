@@ -72,7 +72,7 @@ async def login(
     if rv == "general_admin":
         dest = "/admin/"
     elif rv == "member":
-        dest = "/dashboard" if getattr(user, "can_view_church_dashboard", False) else "/member/portal"
+        dest = "/member/portal"
     else:
         dest = "/dashboard"
     resp = RedirectResponse(dest, status_code=303)

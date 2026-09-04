@@ -5,7 +5,7 @@ from fastapi.templating import Jinja2Templates
 from sqlmodel import Session, select
 
 from app.database import get_session
-from app.models import User, UserRole, ChurchUnit, ChurchMember, WeeklyStat
+from app.models import User, UserRole, ChurchUnit, ChurchMember, WeeklyStat, SpecialProgram, ProgramPhoto, ChurchLevel
 from app.auth import require_roles, get_password_hash, role_val
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -262,3 +262,74 @@ async def list_global_churches(
     return templates.TemplateResponse("admin/globals.html", {
         "request": request, "user": user, "globals": globals_,
     })
+
+
+@router.get("/featured-programs", response_class=HTMLResponse)
+async def featured_programs_page(
+    request: Request,
+    user: User = Depends(require_roles(UserRole.general_admin)),
+    session: Session = Depends(get_session),
+):
+    """Global-level programs that can be shown on the public home page."""
+    all_progs = list(session.exec(
+        select(SpecialProgram).where(SpecialProgram.is_active == True)
+        .order_by(SpecialProgram.created_at.desc())
+    ).all())
+    rows = []
+    for p in all_progs:
+        church = session.get(ChurchUnit, p.church_id)
+        if not church:
+            continue
+        lv = str(getattr(church.level, "value", church.level)).lower()
+        # Only global church units OR programs broadcast globally from a global church
+        is_global_unit = lv in ("global", "global_church")
+        is_global_broadcast = (p.broadcast_to or "").lower() == "global" and is_global_unit
+        if not (is_global_unit or is_global_broadcast):
+            # still allow if broadcast is global and church is global
+            if not (is_global_unit and (p.broadcast_to or "").lower() in ("global", "country", "state", "group", "district")):
+                if not is_global_unit:
+                    continue
+        if not is_global_unit:
+            continue
+        photo = session.exec(
+            select(ProgramPhoto).where(ProgramPhoto.program_id == p.id)
+            .order_by(ProgramPhoto.created_at.desc())
+        ).first()
+        rows.append({"p": p, "church": church, "photo": photo})
+    return templates.TemplateResponse("admin/featured_programs.html", {
+        "request": request, "user": user, "rows": rows,
+    })
+
+
+@router.post("/programs/{program_id}/feature")
+async def feature_program(
+    program_id: int,
+    user: User = Depends(require_roles(UserRole.general_admin)),
+    session: Session = Depends(get_session),
+):
+    p = session.get(SpecialProgram, program_id)
+    if not p:
+        raise HTTPException(404, "Program not found")
+    church = session.get(ChurchUnit, p.church_id)
+    lv = str(getattr(church.level, "value", church.level)).lower() if church else ""
+    if lv not in ("global", "global_church"):
+        raise HTTPException(400, "Only programs from a Global church can appear on the home page")
+    p.featured_on_home = True
+    session.add(p)
+    session.commit()
+    return RedirectResponse("/admin/featured-programs", status_code=303)
+
+
+@router.post("/programs/{program_id}/unfeature")
+async def unfeature_program(
+    program_id: int,
+    user: User = Depends(require_roles(UserRole.general_admin)),
+    session: Session = Depends(get_session),
+):
+    p = session.get(SpecialProgram, program_id)
+    if not p:
+        raise HTTPException(404, "Program not found")
+    p.featured_on_home = False
+    session.add(p)
+    session.commit()
+    return RedirectResponse("/admin/featured-programs", status_code=303)

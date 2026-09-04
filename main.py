@@ -10,7 +10,7 @@ from pathlib import Path
 from app.database import create_db_and_tables, get_session, engine
 from app.models import User, UserRole
 from app.auth import get_password_hash, get_current_user, verify_password, create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES
-from app.routers import auth, admin, church, district, members, programs, projects
+from app.routers import auth, admin, church, district, members, programs, projects, community
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -54,6 +54,7 @@ app.include_router(district.router)
 app.include_router(members.router)
 app.include_router(programs.router)
 app.include_router(projects.router)
+app.include_router(community.router)
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request, user: Optional[User] = Depends(get_current_user)):
@@ -65,7 +66,46 @@ async def home(request: Request, user: Optional[User] = Depends(get_current_user
         if rv == "member" and not getattr(user, "can_view_church_dashboard", False):
             return RedirectResponse("/member/portal", status_code=303)
         return RedirectResponse("/dashboard", status_code=303)
-    return templates.TemplateResponse("index.html", {"request": request, "user": None})
+    # Public landing: General-Admin-approved Global church programs
+    featured = []
+    try:
+        from sqlmodel import Session, select
+        from app.database import engine
+        from app.models import SpecialProgram, ProgramPhoto, ChurchUnit, ChurchLevel
+        with Session(engine) as session:
+            progs = list(session.exec(
+                select(SpecialProgram).where(
+                    SpecialProgram.featured_on_home == True,
+                    SpecialProgram.is_active == True,
+                ).order_by(SpecialProgram.program_date.desc(), SpecialProgram.created_at.desc())
+            ).all())
+            for p in progs:
+                church = session.get(ChurchUnit, p.church_id)
+                if not church:
+                    continue
+                lv = str(getattr(church.level, "value", church.level)).lower()
+                if lv not in ("global", "global_church"):
+                    continue
+                photo = session.exec(
+                    select(ProgramPhoto).where(ProgramPhoto.program_id == p.id)
+                    .order_by(ProgramPhoto.created_at.desc())
+                ).first()
+                featured.append({
+                    "title": p.title,
+                    "church": church.name,
+                    "date": str(p.program_date) if p.program_date else "",
+                    "venue": p.location or "",
+                    "photo": (
+                        photo.file_path if photo and photo.file_path.startswith("/")
+                        else ("/" + photo.file_path if photo and photo.file_path else "")
+                    ),
+                    "description": (p.description or "")[:180],
+                })
+    except Exception as e:
+        print(f"featured load: {e}")
+    return templates.TemplateResponse("index.html", {
+        "request": request, "user": None, "featured_programs": featured,
+    })
 
 @app.get("/health")
 async def health():

@@ -45,28 +45,49 @@
 
     <!-- Demographics -->
     
-    {% if is_global_view %}
+        {% if is_global_view %}
     <div class="stat-card rounded-2xl p-6 mb-8" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12)">
-      <h2 class="font-semibold mb-2">World map of assemblies</h2>
-      <p class="text-sm text-blue-200 mb-3">Zoom from world → country. State table shows how many churches are in each state.</p>
-      <div id="churchMap" class="h-96 rounded-xl overflow-hidden bg-slate-900/40 border border-white/10 z-0"></div>
-      {% if state_summary %}
-      <div class="mt-4 overflow-x-auto">
-        <table class="w-full text-sm text-left">
-          <thead><tr class="text-blue-200"><th class="py-1 pr-4">Country</th><th class="py-1 pr-4">State</th><th class="py-1">Churches</th></tr></thead>
-          <tbody>
-          {% for s in state_summary %}
-            <tr class="border-t border-white/10"><td class="py-1.5 pr-4">{{ s.country }}</td><td class="py-1.5 pr-4">{{ s.state }}</td><td class="py-1.5 font-semibold">{{ s.count }}</td></tr>
-          {% endfor %}
-          </tbody>
-        </table>
+      <h2 class="font-semibold mb-2 text-white">World map of assemblies</h2>
+      <p class="text-sm text-blue-200 mb-3">
+        <strong class="text-white">Blue circles</strong> = number of churches in a country.
+        <strong class="text-white">Pins</strong> = individual church locations (exact or estimated).
+        Zoom in to explore by country and state.
+      </p>
+      <div id="churchMap" class="h-[28rem] rounded-xl overflow-hidden bg-slate-900/40 border border-white/10" style="z-index:0"></div>
+      <div class="grid md:grid-cols-2 gap-4 mt-4">
+        <div class="overflow-x-auto">
+          <h3 class="text-sm font-semibold text-amber-300 mb-2">Churches by country</h3>
+          <table class="w-full text-sm text-left text-white">
+            <thead><tr class="text-blue-200"><th class="py-1 pr-4">Country</th><th class="py-1">Churches</th></tr></thead>
+            <tbody>
+            {% for c in country_summary or [] %}
+              <tr class="border-t border-white/10"><td class="py-1.5 pr-4">{{ c.country }}</td><td class="py-1.5 font-semibold">{{ c.count }}</td></tr>
+            {% else %}
+              <tr><td colspan="2" class="py-2 text-blue-200/70 text-xs">No country counts yet — set country on Church info.</td></tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <div class="overflow-x-auto">
+          <h3 class="text-sm font-semibold text-amber-300 mb-2">Churches by state</h3>
+          <table class="w-full text-sm text-left text-white">
+            <thead><tr class="text-blue-200"><th class="py-1 pr-4">Country</th><th class="py-1 pr-4">State</th><th class="py-1">Churches</th></tr></thead>
+            <tbody>
+            {% for s in state_summary or [] %}
+              <tr class="border-t border-white/10"><td class="py-1.5 pr-4">{{ s.country }}</td><td class="py-1.5 pr-4">{{ s.state }}</td><td class="py-1.5 font-semibold">{{ s.count }}</td></tr>
+            {% else %}
+              <tr><td colspan="3" class="py-2 text-blue-200/70 text-xs">No state counts yet — set state on Church info.</td></tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
       </div>
-      {% endif %}
       {% if not map_markers %}
-      <p class="text-xs text-blue-200/80 mt-2">Set latitude/longitude under Church info so units appear on the map.</p>
+      <p class="text-xs text-blue-200/80 mt-3">No pins yet. Under <strong>Church info</strong> set latitude/longitude (or at least country/state) for each assembly.</p>
       {% endif %}
     </div>
     {% endif %}
+
 {% if demo %}
     <div class="grid lg:grid-cols-3 gap-6 mb-8">
       <div class="stat-card rounded-2xl p-6 lg:col-span-1">
@@ -231,20 +252,49 @@
 
   {% if is_global_view %}
   var markers = {{ (map_markers if map_markers is defined else [])|tojson }};
+  var countrySummary = {{ (country_summary if country_summary is defined else [])|tojson }};
   var el = document.getElementById('churchMap');
   if (el && typeof L !== 'undefined') {
     var map = L.map('churchMap').setView([20,0], 2);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 12, attribution: '&copy; OpenStreetMap'
+      maxZoom: 14, attribution: '&copy; OpenStreetMap'
     }).addTo(map);
     var bounds = [];
+
+    // Country count circles (number of churches in country)
+    (countrySummary || []).forEach(function(c) {
+      if (c.lat == null || c.lng == null || !c.count) return;
+      var radius = Math.min(40, 12 + (c.count * 4));
+      var circle = L.circleMarker([c.lat, c.lng], {
+        radius: radius,
+        color: '#93c5fd',
+        fillColor: '#2563eb',
+        fillOpacity: 0.55,
+        weight: 2
+      }).addTo(map);
+      circle.bindPopup('<strong>'+c.country+'</strong><br>'+c.count+' church'+(c.count===1?'':'es')+' in network');
+      circle.bindTooltip(String(c.count), {
+        permanent: true, direction: 'center', className: 'map-count-label'
+      });
+      bounds.push([c.lat, c.lng]);
+    });
+
+    // Individual church location pins
     (markers || []).forEach(function(m) {
+      if (m.lat == null || m.lng == null) return;
       var mk = L.marker([m.lat, m.lng]).addTo(map);
-      mk.bindPopup('<strong>'+m.name+'</strong><br>'+(m.level||'')+'<br>'+(m.country||'')+' · '+(m.state||''));
+      var src = m.source === 'exact' ? 'Exact location' : (m.source === 'state' ? 'State estimate' : 'Country estimate');
+      mk.bindPopup(
+        '<strong>'+m.name+'</strong><br>'+
+        (m.level||'')+' · <code>'+(m.code||'')+'</code><br>'+
+        (m.country||'')+(m.state ? ' · '+m.state : '')+'<br>'+
+        (m.address||'')+'<br><em style="font-size:11px;color:#64748b">'+src+'</em>'
+      );
       bounds.push([m.lat, m.lng]);
     });
-    if (bounds.length) map.fitBounds(bounds, { padding: [30,30], maxZoom: 8 });
-    setTimeout(function(){ map.invalidateSize(); }, 250);
+
+    if (bounds.length) map.fitBounds(bounds, { padding: [40,40], maxZoom: 7 });
+    setTimeout(function(){ map.invalidateSize(); }, 300);
   }
   {% endif %}
 })();

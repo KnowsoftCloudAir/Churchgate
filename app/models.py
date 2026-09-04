@@ -96,7 +96,8 @@ class User(SQLModel, table=True):
     can_create_churches: bool = Field(default=False)  # GA grants: create child churches
     can_approve_members: bool = Field(default=False)  # GA grants: approve member registrations
     can_see_member_count: bool = Field(default=False)
-    can_view_church_dashboard: bool = Field(default=False)  # sub-admin grants church dashboard to member  # see district member totals
+    can_view_church_dashboard: bool = Field(default=False)
+    can_manage_focus_groups: bool = Field(default=False)  # create focus groups / message them  # sub-admin grants church dashboard to member  # see district member totals
     is_active: bool = Field(default=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     last_login: Optional[datetime] = None
@@ -165,6 +166,7 @@ class SpecialProgram(SQLModel, table=True):
     broadcast_to: str = Field(default="district")  # district | group | state | country | global
     created_by: Optional[int] = None
     is_active: bool = Field(default=True)
+    featured_on_home: bool = Field(default=False)  # General Admin approval for landing/news flash
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
     church: Optional[ChurchUnit] = Relationship(back_populates="programs")
@@ -228,3 +230,118 @@ class SpecialProjectContribution(SQLModel, table=True):
     note: Optional[str] = None
     recorded_by: Optional[int] = None
     contributed_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class AdminMessage(SQLModel, table=True):
+    """Church admin messages to all or selected members."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    church_id: int = Field(foreign_key="churchunit.id", index=True)
+    sender_id: int = Field(foreign_key="user.id")
+    subject: str
+    body: str = Field(sa_column=Column(Text))
+    # JSON list of member ids; empty / null = all approved members in tree
+    recipient_member_ids: Optional[str] = Field(default=None, sa_column=Column(Text))
+    send_to_all: bool = Field(default=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class MemberMessageReceipt(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    message_id: int = Field(foreign_key="adminmessage.id", index=True)
+    member_id: int = Field(foreign_key="churchmember.id", index=True)
+    user_id: Optional[int] = Field(default=None, foreign_key="user.id")
+    is_read: bool = Field(default=False)
+    read_at: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class FocusGroup(SQLModel, table=True):
+    """Admin-created group of selected members for targeted messages."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    church_id: int = Field(foreign_key="churchunit.id", index=True)
+    name: str
+    description: Optional[str] = Field(default=None, sa_column=Column(Text))
+    created_by: Optional[int] = Field(default=None, foreign_key="user.id")
+    is_active: bool = Field(default=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+class FocusGroupMember(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    group_id: int = Field(foreign_key="focusgroup.id", index=True)
+    member_id: int = Field(foreign_key="churchmember.id", index=True)
+    added_at: datetime = Field(default_factory=datetime.utcnow)
+
+class FocusGroupMessage(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    group_id: int = Field(foreign_key="focusgroup.id", index=True)
+    sender_id: int = Field(foreign_key="user.id")
+    body: str = Field(sa_column=Column(Text))
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+class FocusGroupMessageComment(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    message_id: int = Field(foreign_key="focusgroupmessage.id", index=True)
+    user_id: int = Field(foreign_key="user.id")
+    body: str = Field(sa_column=Column(Text))
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+class Testimony(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    church_id: int = Field(foreign_key="churchunit.id", index=True)
+    member_id: Optional[int] = Field(default=None, foreign_key="churchmember.id")
+    user_id: int = Field(foreign_key="user.id")
+    title: str
+    body: str = Field(sa_column=Column(Text))
+    is_active: bool = Field(default=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+class TestimonyLike(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    testimony_id: int = Field(foreign_key="testimony.id", index=True)
+    user_id: int = Field(foreign_key="user.id")
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+class TestimonyComment(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    testimony_id: int = Field(foreign_key="testimony.id", index=True)
+    user_id: int = Field(foreign_key="user.id")
+    body: str = Field(sa_column=Column(Text))
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+class HeartNeed(SQLModel, table=True):
+    """Heart to Heart — member shares a need; others can support."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    church_id: int = Field(foreign_key="churchunit.id", index=True)
+    member_id: Optional[int] = Field(default=None, foreign_key="churchmember.id")
+    user_id: int = Field(foreign_key="user.id")
+    title: str
+    situation: str = Field(sa_column=Column(Text))
+    amount_requested: float = Field(default=0.0)
+    amount_raised: float = Field(default=0.0)
+    status: str = Field(default="open")  # open, helped, closed
+    receipt_affirmed: bool = Field(default=False)
+    receipt_note: Optional[str] = Field(default=None, sa_column=Column(Text))
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+class HeartDonation(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    church_id: int = Field(foreign_key="churchunit.id", index=True)
+    need_id: Optional[int] = Field(default=None, foreign_key="heartneed.id")  # null = general pool
+    donor_user_id: int = Field(foreign_key="user.id")
+    amount: float = Field(default=0.0)
+    note: Optional[str] = None
+    is_anonymous: bool = Field(default=False)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+class HeartDistribution(SQLModel, table=True):
+    """Admin records how Heart to Heart funds were given out."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    church_id: int = Field(foreign_key="churchunit.id", index=True)
+    need_id: Optional[int] = Field(default=None, foreign_key="heartneed.id")
+    beneficiary_member_id: Optional[int] = Field(default=None, foreign_key="churchmember.id")
+    amount: float = Field(default=0.0)
+    note: Optional[str] = Field(default=None, sa_column=Column(Text))
+    recorded_by: Optional[int] = Field(default=None, foreign_key="user.id")
+    beneficiary_affirmed: bool = Field(default=False)
+    affirmed_at: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)

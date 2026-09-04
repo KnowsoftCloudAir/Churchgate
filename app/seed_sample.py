@@ -160,6 +160,7 @@ def seed_knowsoft_bible_church(session: Session) -> None:
                 description="Special thanksgiving service. All Ikeja Group members invited.",
                 program_date=date.today() + timedelta(days=7),
                 location="Allen Avenue Auditorium",
+                # featured only after general admin approval - leave false on district
                 broadcast_to="group",
                 is_active=True,
             ))
@@ -210,7 +211,28 @@ def seed_knowsoft_bible_church(session: Session) -> None:
                 session.commit()
                 print("✅ Added sample members to district")
 
-        print("✅ Sample sub-admin logins ready:")
+        
+            # Global showcase program (General Admin can also toggle featured_on_home)
+            existing_global_prog = session.exec(
+                select(SpecialProgram).where(SpecialProgram.title == "Knowsoft Global Convention")
+            ).first()
+            if not existing_global_prog and global_c:
+                from datetime import date, timedelta
+                gp = SpecialProgram(
+                    church_id=global_c.id,
+                    title="Knowsoft Global Convention",
+                    description="Annual gathering of assemblies — worship, teaching and fellowship.",
+                    program_date=date.today() + timedelta(days=45),
+                    location="International Conference Centre",
+                    broadcast_to="global",
+                    is_active=True,
+                    featured_on_home=True,
+                )
+                session.add(gp)
+                session.commit()
+                print("✅ Sample featured Global program for home page")
+
+            print("✅ Sample sub-admin logins ready:")
         print("   allen@knowsoftchurch.org / Church@12345  (District – use this first)")
         print("   ikeja@knowsoftchurch.org / Church@12345")
         print("   lagos@knowsoftchurch.org / Church@12345")

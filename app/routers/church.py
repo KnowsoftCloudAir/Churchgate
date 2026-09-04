@@ -32,7 +32,139 @@ def collect_descendant_ids(session: Session, root_id: int) -> list:
 
 
 
+
 # Approximate country centroids for map when a unit has no lat/lng
+_COUNTRY_COORDS = {
+    "nigeria": (9.0820, 8.6753),
+    "ghana": (7.9465, -1.0232),
+    "kenya": (-1.2921, 36.8219),
+    "south africa": (-30.5595, 22.9375),
+    "united states": (37.0902, -95.7129),
+    "united kingdom": (55.3781, -3.4360),
+    "india": (20.5937, 78.9629),
+    "canada": (56.1304, -106.3468),
+    "australia": (-25.2744, 133.7751),
+    "cameroon": (7.3697, 12.3547),
+    "uganda": (1.3733, 32.2903),
+    "tanzania": (-6.3690, 34.8888),
+    "zambia": (-13.1339, 27.8493),
+    "zimbabwe": (-19.0154, 29.1549),
+    "egypt": (26.8206, 30.8025),
+    "brazil": (-14.2350, -51.9253),
+    "philippines": (12.8797, 121.7740),
+}
+
+# Approximate state/province centroids (country|state lowercase)
+_STATE_COORDS = {
+    "nigeria|lagos": (6.5244, 3.3792),
+    "nigeria|abuja": (9.0765, 7.3986),
+    "nigeria|federal capital territory": (9.0765, 7.3986),
+    "nigeria|rivers": (4.8156, 7.0498),
+    "nigeria|kano": (12.0022, 8.5920),
+    "nigeria|oyo": (7.3775, 3.9470),
+    "nigeria|kaduna": (10.5105, 7.4165),
+    "ghana|greater accra": (5.6037, -0.1870),
+    "kenya|nairobi": (-1.2921, 36.8219),
+    "united states|california": (36.7783, -119.4179),
+    "united states|texas": (31.9686, -99.9018),
+    "united states|new york": (40.7128, -74.0060),
+}
+
+
+def resolve_unit_coords(u):
+    """Return (lat, lng, source) for a church unit."""
+    lat = getattr(u, "latitude", None)
+    lng = getattr(u, "longitude", None)
+    if lat is not None and lng is not None:
+        try:
+            return float(lat), float(lng), "exact"
+        except (TypeError, ValueError):
+            pass
+    cn = (getattr(u, "country_name", None) or "").strip().lower()
+    sn = (getattr(u, "state_name", None) or "").strip().lower()
+    if cn and sn:
+        key = f"{cn}|{sn}"
+        if key in _STATE_COORDS:
+            a, b = _STATE_COORDS[key]
+            return a, b, "state"
+    if cn in _COUNTRY_COORDS:
+        a, b = _COUNTRY_COORDS[cn]
+        return a, b, "country"
+    return None, None, None
+
+
+def build_map_payload(session, scope_ids):
+    """Markers for each unit + country/state counts for the global map."""
+    map_markers = []
+    state_counts = {}
+    country_counts = {}
+    for uid in scope_ids:
+        u = session.get(ChurchUnit, uid)
+        if not u:
+            continue
+        lv = str(getattr(u.level, "value", u.level)).lower()
+        cn = (u.country_name or "").strip() or "Unknown"
+        sn = (u.state_name or "").strip() or "Unknown"
+        # Prefer counting district churches as "assemblies"
+        if lv == "district":
+            state_counts[(cn, sn)] = state_counts.get((cn, sn), 0) + 1
+            country_counts[cn] = country_counts.get(cn, 0) + 1
+        lat, lng, src = resolve_unit_coords(u)
+        if lat is None:
+            continue
+        map_markers.append({
+            "name": u.name,
+            "code": u.code,
+            "level": lv,
+            "lat": lat,
+            "lng": lng,
+            "address": u.address or "",
+            "country": cn,
+            "state": sn if sn != "Unknown" else "",
+            "source": src,
+        })
+    # If no districts, count every non-global unit so the map still shows numbers
+    if not country_counts:
+        for uid in scope_ids:
+            u = session.get(ChurchUnit, uid)
+            if not u:
+                continue
+            lv = str(getattr(u.level, "value", u.level)).lower()
+            if lv in ("global", "global_church"):
+                continue
+            cn = (u.country_name or "").strip() or "Unknown"
+            sn = (u.state_name or "").strip() or "Unknown"
+            state_counts[(cn, sn)] = state_counts.get((cn, sn), 0) + 1
+            country_counts[cn] = country_counts.get(cn, 0) + 1
+
+    country_summary = []
+    for cn, count in sorted(country_counts.items(), key=lambda x: -x[1]):
+        lat = lng = None
+        key = cn.lower()
+        if key in _COUNTRY_COORDS:
+            lat, lng = _COUNTRY_COORDS[key]
+        country_summary.append({
+            "country": cn, "count": count,
+            "lat": lat, "lng": lng,
+        })
+    state_summary = [
+        {"country": a, "state": b, "count": n}
+        for (a, b), n in sorted(state_counts.items(), key=lambda x: (x[0][0], -x[1]))
+    ]
+    # If no district counts, count every unit with a country
+    if not country_summary:
+        for m in map_markers:
+            cn = m.get("country") or "Unknown"
+            country_counts[cn] = country_counts.get(cn, 0) + 1
+        country_summary = []
+        for cn, count in sorted(country_counts.items(), key=lambda x: -x[1]):
+            lat = lng = None
+            if cn.lower() in _COUNTRY_COORDS:
+                lat, lng = _COUNTRY_COORDS[cn.lower()]
+            country_summary.append({"country": cn, "count": count, "lat": lat, "lng": lng})
+    return map_markers, state_summary, country_summary
+
+
 
 def build_parent_path(session: Session, unit: ChurchUnit) -> str:
     """Global > Country > State > Group > District style path."""
@@ -89,7 +221,7 @@ async def dashboard(
     """Church dashboard — members without grant are redirected away."""
     from app.auth import role_val
     try:
-        if role_val(user.role) == "member" and not getattr(user, "can_view_church_dashboard", False):
+        if role_val(user.role) == "member":
             return RedirectResponse("/member/portal", status_code=303)
 
         church = session.get(ChurchUnit, user.church_id) if user.church_id else None
@@ -102,6 +234,7 @@ async def dashboard(
         demo = {}
         map_markers = []
         state_summary = []
+        country_summary = []
         is_global_view = False
         scope_ids = []
 
@@ -118,7 +251,7 @@ async def dashboard(
                 "chart_tithe": [], "chart_donation": [],
                 "total_offering": 0, "total_tithe": 0, "latest_attendance": 0,
                 "is_admin_overview": True, "demo": {},
-                "map_markers": [], "is_global_view": False, "state_summary": [],
+                "map_markers": [], "is_global_view": False, "state_summary": [], "country_summary": [],
                 "admin_viewing": False,
             })
 
@@ -221,36 +354,9 @@ async def dashboard(
 
             lv = str(getattr(church.level, "value", church.level)).lower()
             is_global_view = lv in ("global", "global_church")
+            country_summary = []
             if is_global_view and scope_ids:
-                state_counts = {}
-                for uid in scope_ids:
-                    u = session.get(ChurchUnit, uid)
-                    if not u:
-                        continue
-                    lat = getattr(u, "latitude", None)
-                    lng = getattr(u, "longitude", None)
-                    # Fallback: approximate from country name so map is never empty
-                    if lat is None or lng is None:
-                        cn = (u.country_name or "").strip().lower()
-                        if cn in _COUNTRY_COORDS:
-                            lat, lng = _COUNTRY_COORDS[cn]
-                        else:
-                            # skip units with no location at all
-                            lat = lng = None
-                    if lat is not None and lng is not None:
-                        try:
-                            map_markers.append({
-                                "name": u.name, "code": u.code,
-                                "level": str(getattr(u.level, "value", u.level)),
-                                "lat": float(lat), "lng": float(lng),
-                                "address": u.address or "",
-                                "country": u.country_name or "", "state": u.state_name or "",
-                            })
-                        except Exception:
-                            pass
-                    key = (u.country_name or "Unknown", u.state_name or "Unknown")
-                    state_counts[key] = state_counts.get(key, 0) + 1
-                state_summary = [{"country": a, "state": b, "count": n} for (a, b), n in sorted(state_counts.items())]
+                map_markers, state_summary, country_summary = build_map_payload(session, scope_ids)
 
         return templates.TemplateResponse("church/dashboard.html", {
             "request": request, "user": user, "church": church,
@@ -261,7 +367,7 @@ async def dashboard(
             "total_tithe": total_tithe, "latest_attendance": latest_attendance,
             "is_admin_overview": False, "demo": demo,
             "map_markers": map_markers, "is_global_view": is_global_view,
-            "state_summary": state_summary, "admin_viewing": False,
+            "state_summary": state_summary, "country_summary": country_summary if "country_summary" in dir() else [], "admin_viewing": False,
         })
     except Exception as e:
         return HTMLResponse(
@@ -544,28 +650,9 @@ async def view_unit_dashboard(
     state_summary = []
     lv = str(getattr(church.level, "value", church.level)).lower()
     is_global_view = lv in ("global", "global_church")
+    country_summary = []
     if is_global_view:
-        state_counts = {}
-        for uid in ids:
-            u = session.get(ChurchUnit, uid)
-            if not u:
-                continue
-            lat, lng = getattr(u, "latitude", None), getattr(u, "longitude", None)
-            if lat is None or lng is None:
-                cn = (u.country_name or "").strip().lower()
-                if cn in _COUNTRY_COORDS:
-                    lat, lng = _COUNTRY_COORDS[cn]
-            if lat is not None and lng is not None:
-                map_markers.append({
-                    "name": u.name, "code": u.code,
-                    "level": str(getattr(u.level, "value", u.level)),
-                    "lat": float(lat), "lng": float(lng),
-                    "address": u.address or "",
-                    "country": u.country_name or "", "state": u.state_name or "",
-                })
-            key = (u.country_name or "Unknown", u.state_name or "Unknown")
-            state_counts[key] = state_counts.get(key, 0) + 1
-        state_summary = [{"country": a, "state": b, "count": n} for (a, b), n in sorted(state_counts.items())]
+        map_markers, state_summary, country_summary = build_map_payload(session, ids)
     return templates.TemplateResponse("church/dashboard.html", {
         "request": request, "user": user, "church": church,
         "children": children, "stats": [], "members_count": members_count,
@@ -574,7 +661,7 @@ async def view_unit_dashboard(
         "total_offering": 0, "total_tithe": 0, "latest_attendance": 0,
         "is_admin_overview": False, "demo": demo,
         "map_markers": map_markers, "is_global_view": is_global_view,
-        "state_summary": state_summary, "admin_viewing": True,
+        "state_summary": state_summary, "country_summary": country_summary if "country_summary" in dir() else [], "admin_viewing": True,
     })
 
 

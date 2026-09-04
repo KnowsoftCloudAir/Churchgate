@@ -65,19 +65,8 @@ async def get_current_user(
     if rv in ("general_admin", "church_admin", "data_officer"):
         user.can_view_church_dashboard = True
     elif rv == "member":
-        granted = bool(getattr(user, "can_view_church_dashboard", False))
-        try:
-            from app.models import ChurchMember
-            m = None
-            if user.member_id:
-                m = session.get(ChurchMember, user.member_id)
-            if not m and user.email:
-                m = session.exec(select(ChurchMember).where(ChurchMember.email == user.email)).first()
-            if m and (str(m.status or "")).lower() == "pastor":
-                granted = True
-        except Exception:
-            pass
-        user.can_view_church_dashboard = granted
+        # Members never see the church operational dashboard
+        user.can_view_church_dashboard = False
     else:
         user.can_view_church_dashboard = False
     return user

@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Home page programs{% endblock %}
+{% block content %}
+<div class="max-w-4xl mx-auto px-4 py-8">
+  <a href="/admin/" class="text-sm text-blue-700 font-medium">← Admin</a>
+  <h1 class="text-2xl font-bold text-navy-900 mt-2 mb-1">Home page showcase</h1>
+  <p class="text-sm text-slate-500 mb-6">Only <strong>Global church</strong> special programs can be approved to slide on the public landing page (20 seconds each).</p>
+  <div class="space-y-4">
+    {% for row in rows %}
+    <div class="bg-white rounded-2xl border p-4 flex flex-wrap gap-4 items-start">
+      {% if row.photo %}
+      <img src="{% if row.photo.file_path.startswith("/") %}{{ row.photo.file_path }}{% else %}/{{ row.photo.file_path }}{% endif %}" alt="" class="w-28 h-20 object-cover rounded-lg border">
+      {% else %}
+      <div class="w-28 h-20 rounded-lg bg-slate-100 flex items-center justify-center text-xs text-slate-400">No photo</div>
+      {% endif %}
+      <div class="flex-1 min-w-[12rem]">
+        <p class="font-semibold">{{ row.p.title }}</p>
+        <p class="text-xs text-slate-500">{{ row.church.name }} · {{ row.p.program_date or "Date TBC" }} · {{ row.p.location or "Venue TBC" }}</p>
+        <p class="text-xs mt-1 {% if row.p.featured_on_home %}text-emerald-600{% else %}text-slate-400{% endif %}">
+          {% if row.p.featured_on_home %}✓ Showing on home page{% else %}Not on home page{% endif %}
+        </p>
+      </div>
+      <div class="flex gap-2">
+        {% if row.p.featured_on_home %}
+        <form method="post" action="/admin/programs/{{ row.p.id }}/unfeature">
+          <button class="px-3 py-1.5 rounded-lg border text-xs font-semibold text-red-700">Remove from home</button>
+        </form>
+        {% else %}
+        <form method="post" action="/admin/programs/{{ row.p.id }}/feature">
+          <button class="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold">Approve for home</button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+    {% else %}
+    <p class="text-slate-400 text-sm">No active programs from Global churches yet. Global admins create programs under Programs → Create.</p>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}
