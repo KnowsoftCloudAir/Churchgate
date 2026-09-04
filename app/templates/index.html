@@ -62,6 +62,8 @@
  }
  .stat-pulse { transition: all 0.4s ease; }
 </style>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <style>[x-cloak]{display:none!important}</style>
 </head>
 <body class="font-sans antialiased text-white bg-ink-900 overflow-x-hidden">
  <!-- Nav -->
@@ -121,7 +123,7 @@
 
  
  <!-- Live clock + stats + YouTube showcase -->
- <div class="space-y-4" x-data="homeLive()" x-init="boot()">
+ <div class="space-y-4 mt-8 lg:mt-0" x-data="homeLive()" x-init="boot()">
    <!-- Flip-style digital clock -->
    <div class="glass-card rounded-2xl p-4 shadow-lift">
      <p class="text-sanctum-400 text-xs font-semibold uppercase tracking-wider mb-2">Live time</p>
@@ -267,7 +269,7 @@
  </section>
  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
  <script>
- function homeShowcase() {
+ window.homeShowcase = function homeShowcase() {
    return {
      active: 0,
      timer: null,
@@ -368,8 +370,8 @@
  </footer>
 
 <script>
-function homeLive() {
-  const base = {{ live_stats|default({"churches":12,"countries":3,"states":8,"members":500})|tojson }};
+window.homeLive = function homeLive() {
+  const base = {{ live_stats|default({'churches': 5, 'countries': 1, 'states': 1, 'members': 1})|tojson }};
   const clips = {{ youtube_clips|default([])|tojson }};
   return {
     hh: "00", mm: "00", ss: "00",
