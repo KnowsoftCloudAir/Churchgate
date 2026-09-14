@@ -301,6 +301,7 @@ async def approve_member(
     worker_type: str = Form(""),
     leader_type: str = Form(""),
     can_enter_stats: str = Form(""),
+    can_view_church_dashboard: str = Form(""),
     custom_title: str = Form(""),
     user: User = Depends(require_roles(UserRole.church_admin, UserRole.general_admin)),
     session: Session = Depends(get_session)
@@ -326,6 +327,10 @@ async def approve_member(
         u.church_id = member.church_id
         if can_enter_stats == "yes":
             u.can_enter_stats = True
+        if can_view_church_dashboard == "yes":
+            u.can_view_church_dashboard = True
+        elif can_view_church_dashboard == "no":
+            u.can_view_church_dashboard = False
         session.add(u)
     session.commit()
     return RedirectResponse("/district/approvals", status_code=303)
@@ -373,6 +378,7 @@ async def edit_member_status(
     leader_type: str = Form(""),
     custom_title: str = Form(""),
     can_enter_stats: str = Form(""),
+    can_view_church_dashboard: str = Form(""),
     can_see_member_count: str = Form(""),
     user: User = Depends(require_roles(UserRole.church_admin, UserRole.general_admin)),
     session: Session = Depends(get_session)
@@ -403,6 +409,10 @@ async def edit_member_status(
     if u:
         if can_enter_stats == "yes":
             u.can_enter_stats = True
+        if can_view_church_dashboard == "yes":
+            u.can_view_church_dashboard = True
+        elif can_view_church_dashboard == "no":
+            u.can_view_church_dashboard = False
         if can_see_member_count == "yes":
             u.can_see_member_count = True
         session.add(u)

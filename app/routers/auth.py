@@ -9,17 +9,8 @@ import secrets
 import string
 
 from app.database import get_session
-from app.models import User, UserRole, ChurchUnit, ChurchLevel, ChurchMember
-from app.auth import (
-    set_auth_cookie,
-    clear_auth_cookie,
-    role_val,
-    verify_password,
-    get_password_hash,
-    create_access_token,
-    get_current_user,
-    ACCESS_TOKEN_EXPIRE_MINUTES,
-)
+from app.models import User, UserRole, ChurchUnit, ChurchLevel, ApprovalStatus, ChurchMember
+from app.auth import require_user, role_val, verify_password, get_password_hash, create_access_token, get_current_user, ACCESS_TOKEN_EXPIRE_MINUTES
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent.parent / "templates"))
@@ -31,12 +22,7 @@ def generate_code(prefix: str = "CG") -> str:
 @router.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request, user: Optional[User] = Depends(get_current_user)):
     if user:
-        rv = role_val(user.role)
-        if rv == "general_admin":
-            return RedirectResponse("/admin-panel", status_code=303)
-        if rv == "member" and not getattr(user, "can_view_church_dashboard", False):
-            return RedirectResponse("/member/portal", status_code=303)
-        return RedirectResponse("/my-dashboard", status_code=303)
+        return RedirectResponse("/dashboard", status_code=303)
     return templates.TemplateResponse("auth/login.html", {"request": request})
 
 @router.post("/login")
@@ -46,7 +32,7 @@ async def login(
     password: str = Form(...),
     session: Session = Depends(get_session)
 ):
-    user = session.exec(select(User).where(User.email == email.strip().lower())).first()
+    user = session.exec(select(User).where(User.email == email)).first()
     if not user or not verify_password(password, user.hashed_password):
         return templates.TemplateResponse("auth/login.html", {
             "request": request, "error": "Invalid email or password"
@@ -59,7 +45,8 @@ async def login(
     # Church admins must belong to an approved church
     if role_val(user.role) == "church_admin" and user.church_id:
         church = session.get(ChurchUnit, user.church_id)
-        if church and church.approval_status != "approved":
+        status = (church.approval_status or "approved") if church else "approved"
+        if church and status not in ("approved",):
             return templates.TemplateResponse("auth/login.html", {
                 "request": request, "error": "Your church is still pending approval by Knowsoft Admin."
             }, status_code=400)
@@ -81,20 +68,22 @@ async def login(
     user.last_login = datetime.utcnow()
     session.add(user)
     session.commit()
-    # Single login door — route by role
+    # Route by role — members without dashboard grant go to portal only
     rv = role_val(user.role)
     if rv == "general_admin":
-        dest = "/admin-panel"
+        dest = "/admin/"
     elif rv == "member":
-        from app.models import ChurchMember
-        m = session.get(ChurchMember, user.member_id) if user.member_id else None
-        if not m:
-            m = session.exec(select(ChurchMember).where(ChurchMember.email == user.email)).first()
-        dest = "/my-dashboard" if (m and (str(m.status or "")).lower() == "pastor") else "/member/portal"
+        dest = "/member/portal"
     else:
-        dest = "/my-dashboard"
+        dest = "/dashboard"
     resp = RedirectResponse(dest, status_code=303)
-    set_auth_cookie(resp, token)
+    resp.set_cookie(
+        "access_token", token,
+        httponly=True,
+        max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        samesite="lax",
+        path="/",
+    )
     return resp
 
 @router.get("/register-church", response_class=HTMLResponse)
@@ -124,15 +113,8 @@ async def register_church(
     session: Session = Depends(get_session)
 ):
     level_raw = (level or "").strip().lower()
-    # Accept "global" as global_church enum value
-    level_map = {
-        "global": "global",
-        "global_church": "global",
-        "country": "country",
-        "state": "state",
-        "group": "group",
-        "district": "district",
-    }
+    level_map = {"global": "global", "global_church": "global", "country": "country",
+                 "state": "state", "group": "group", "district": "district"}
     level_raw = level_map.get(level_raw, level_raw)
     try:
         church_level = ChurchLevel(level_raw)
@@ -208,7 +190,7 @@ async def register_church(
     elif church_level == ChurchLevel.district:
         district_code = code
 
-    existing_user = session.exec(select(User).where(User.email == email.strip().lower())).first()
+    existing_user = session.exec(select(User).where(User.email == email)).first()
     if existing_user:
         return templates.TemplateResponse("auth/register_church.html", {
             "request": request, "error": "Email already registered"
@@ -259,55 +241,53 @@ async def register_church(
         "email": email
     })
 
+@router.get("/logout")
+async def logout():
+    resp = RedirectResponse("/auth/login", status_code=303)
+    resp.delete_cookie("access_token")
+    return resp
+
+
 @router.get("/change-password", response_class=HTMLResponse)
 async def change_password_page(
     request: Request,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_user),
 ):
-    if not user:
-        return RedirectResponse("/auth/login", status_code=303)
     return templates.TemplateResponse("auth/change_password.html", {
-        "request": request, "user": user, "error": None, "success": None
+        "request": request, "user": user, "error": None, "success": None,
     })
 
 
 @router.post("/change-password", response_class=HTMLResponse)
-async def change_password(
+async def change_password_submit(
     request: Request,
     current_password: str = Form(...),
     new_password: str = Form(...),
     confirm_password: str = Form(...),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_user),
     session: Session = Depends(get_session),
 ):
-    if not user:
-        return RedirectResponse("/auth/login", status_code=303)
-    err = None
+    """Any logged-in user including General Admin can change their password."""
     if not verify_password(current_password, user.hashed_password):
-        err = "Current password is incorrect."
-    elif len(new_password) < 6:
-        err = "New password must be at least 6 characters."
-    elif new_password != confirm_password:
-        err = "New password and confirmation do not match."
-    if err:
         return templates.TemplateResponse("auth/change_password.html", {
-            "request": request, "user": user, "error": err, "success": None
+            "request": request, "user": user,
+            "error": "Current password is incorrect", "success": None,
         }, status_code=400)
-    # Refresh user from DB and update hash
+    if len(new_password) < 8:
+        return templates.TemplateResponse("auth/change_password.html", {
+            "request": request, "user": user,
+            "error": "New password must be at least 8 characters", "success": None,
+        }, status_code=400)
+    if new_password != confirm_password:
+        return templates.TemplateResponse("auth/change_password.html", {
+            "request": request, "user": user,
+            "error": "New passwords do not match", "success": None,
+        }, status_code=400)
     db_user = session.get(User, user.id)
-    if not db_user:
-        return RedirectResponse("/auth/login", status_code=303)
     db_user.hashed_password = get_password_hash(new_password)
     session.add(db_user)
     session.commit()
     return templates.TemplateResponse("auth/change_password.html", {
         "request": request, "user": user,
-        "error": None, "success": "Password updated successfully. Use your new password next time you sign in."
+        "error": None, "success": "Password updated successfully.",
     })
-
-
-@router.get("/logout")
-async def logout():
-    resp = RedirectResponse("/auth/login", status_code=303)
-    clear_auth_cookie(resp)
-    return resp
