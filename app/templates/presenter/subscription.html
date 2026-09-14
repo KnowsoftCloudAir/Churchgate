@@ -6,19 +6,22 @@
   <title>Subscription — Eleon</title>
   <link rel="icon" href="/static/icons/icon-192.png">
   <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="theme-color" content="#0f172a">
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 <body class="min-h-screen bg-slate-950 text-slate-100">
   <header class="border-b border-white/10 px-4 py-3 flex items-center gap-3">
-    <img src="/static/icons/icon-192.png" class="h-9 w-9 rounded-xl" alt="Eleon">
+    <img src="/static/icons/icon-192.png" class="h-9 w-9 rounded-xl object-cover" alt="Eleon">
     <div>
-      <p class="text-xs text-teal-300 uppercase tracking-widest">Knowsoft Eleon</p>
-      <h1 class="font-bold">My subscription</h1>
+      <p class="text-[10px] uppercase tracking-widest text-teal-300">Knowsoft Eleon</p>
+      <h1 class="font-bold text-lg">Subscription</h1>
     </div>
     <a href="/dashboard" class="ml-auto text-sm text-teal-300">Dashboard</a>
     <a href="/logout" class="text-sm text-rose-300">Log out</a>
   </header>
-  <main class="max-w-3xl mx-auto px-4 py-8 space-y-6">
+
+  <main class="max-w-4xl mx-auto px-4 py-8 space-y-6">
     {% if request.query_params.get('expired') %}
     <div class="rounded-2xl border border-rose-500/40 bg-rose-950/40 p-4 text-rose-100 text-sm">
       Your access has expired. Renew below to continue using Eleon.
@@ -30,32 +33,38 @@
     </div>
     {% endif %}
 
-    <div class="rounded-3xl border border-teal-500/30 bg-gradient-to-br from-slate-900 to-teal-950/40 p-6">
-      <p class="text-xs uppercase tracking-widest text-teal-300 mb-1">Status</p>
-      <p class="text-2xl font-black {% if active %}text-emerald-300{% else %}text-rose-300{% endif %}">
-        {{ user.sub_status }} {% if active %}· Active{% else %}· Off{% endif %}
-      </p>
-      <p class="text-sm text-slate-400 mt-2">Plan: <span class="text-white">{{ user.sub_plan }}</span></p>
-      <p class="text-sm text-slate-400">Ends: <span class="text-white">{{ user.sub_ends_at or '—' }}</span></p>
-      {% if remaining_sec is defined and remaining_sec %}
-      <p class="mt-3 text-amber-200 text-sm font-semibold" id="countdown" data-sec="{{ remaining_sec }}">Time left: …</p>
-      {% endif %}
-      <div class="mt-4 h-2 rounded-full bg-slate-800 overflow-hidden">
-        <div id="bar" class="h-full bg-gradient-to-r from-teal-500 to-amber-400 transition-all" style="width:100%"></div>
+    <!-- Chart + status like Churchgate -->
+    <div class="grid md:grid-cols-2 gap-6 items-center rounded-3xl border border-teal-500/25 bg-gradient-to-br from-slate-900 via-slate-900 to-teal-950/40 p-6">
+      <div class="relative mx-auto w-56 h-56">
+        <canvas id="subChart"></canvas>
+        <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+          <p class="text-3xl font-black text-white" id="daysLeft">—</p>
+          <p class="text-[10px] uppercase tracking-widest text-slate-400">days left</p>
+        </div>
       </div>
-      <p class="text-xs text-slate-500 mt-3">
-        New accounts get <b>12 hours free</b>, then a complimentary <b>1-month</b> period once.
-        After that, renew monthly or annually to keep service on.
-      </p>
+      <div class="space-y-3">
+        <p class="text-xs uppercase tracking-widest text-teal-300">Status</p>
+        <p class="text-2xl font-black {% if active %}text-emerald-300{% else %}text-rose-300{% endif %}">
+          {% if active %}Active{% else %}Expired / Off{% endif %}
+        </p>
+        <p class="text-sm text-slate-400">Plan: <span class="text-white font-semibold">{{ user.sub_plan }}</span></p>
+        <p class="text-sm text-slate-400">Label: <span class="text-white">{{ user.sub_status }}</span></p>
+        <p class="text-sm text-slate-400">Ends: <span class="text-white" id="endsAt">{{ user.sub_ends_at or '—' }}</span></p>
+        <p class="text-amber-200 text-sm font-semibold" id="countdown">…</p>
+        <p class="text-xs text-slate-500 leading-relaxed">
+          New accounts: <b>12 hours free</b>, then one complimentary <b>1-month</b> period.
+          After that, renew monthly or annually or service stays off.
+        </p>
+      </div>
     </div>
 
     <div class="grid sm:grid-cols-2 gap-4">
-      <div class="rounded-2xl border border-white/10 p-5">
+      <div class="rounded-2xl border border-white/10 p-5 hover:border-teal-500/40 transition">
         <p class="text-lg font-bold text-teal-200">Monthly</p>
         <p class="text-3xl font-black mt-1">{{ settings.currency }} {{ '%.0f'|format(settings.monthly_price) }}</p>
         <p class="text-xs text-slate-500 mt-1">30 days access</p>
       </div>
-      <div class="rounded-2xl border border-amber-500/30 p-5">
+      <div class="rounded-2xl border border-amber-500/30 p-5 hover:border-amber-400/50 transition">
         <p class="text-lg font-bold text-amber-200">Annual</p>
         <p class="text-3xl font-black mt-1">{{ settings.currency }} {{ '%.0f'|format(settings.annual_price) }}</p>
         <p class="text-xs text-slate-500 mt-1">365 days access</p>
@@ -93,18 +102,63 @@
       {% endfor %}
     </div>
   </main>
+
   <script>
   (function(){
-    const el = document.getElementById('countdown');
-    const bar = document.getElementById('bar');
-    if (!el) return;
-    let sec = parseInt(el.dataset.sec || '0', 10);
-    const total = sec || 1;
+    const remainingSec = {{ remaining_sec or 0 }};
+    // Total window for chart: use plan length approx 30 days default, or remaining if larger
+    const totalSec = Math.max(remainingSec, {% if user.sub_plan == 'annual' %}365*86400{% elif user.sub_plan == 'free_month' or user.sub_plan == 'monthly' %}30*86400{% elif user.sub_plan == 'trial_12h' %}12*3600{% else %}30*86400{% endif %});
+    let sec = remainingSec;
+    const left = Math.max(0, sec);
+    const used = Math.max(0, totalSec - left);
+    const days = Math.ceil(left / 86400);
+    document.getElementById('daysLeft').textContent = String(Math.max(0, days));
+
+    const ctx = document.getElementById('subChart');
+    const chart = new Chart(ctx, {
+      type: 'doughnut',
+      data: {
+        labels: ['Remaining', 'Used'],
+        datasets: [{
+          data: [left, used || 0.0001],
+          backgroundColor: ['#14b8a6', 'rgba(51,65,85,0.9)'],
+          borderWidth: 0,
+          hoverOffset: 4
+        }]
+      },
+      options: {
+        cutout: '72%',
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: (c) => {
+                const s = c.raw;
+                const d = Math.floor(s/86400), h = Math.floor((s%86400)/3600);
+                return c.label + ': ' + d + 'd ' + h + 'h';
+              }
+            }
+          }
+        },
+        animation: { animateRotate: true, duration: 900 }
+      }
+    });
+
     function tick(){
-      if (sec < 0) { el.textContent = 'Expired'; if(bar) bar.style.width='0%'; return; }
-      const d = Math.floor(sec/86400), h = Math.floor((sec%86400)/3600), m = Math.floor((sec%3600)/60), s = sec%60;
-      el.textContent = 'Time left: ' + (d?d+'d ':'') + h + 'h ' + m + 'm ' + s + 's';
-      if (bar) bar.style.width = Math.max(0, Math.min(100, (sec/total)*100)) + '%';
+      if (sec <= 0) {
+        document.getElementById('countdown').textContent = 'Expired';
+        document.getElementById('daysLeft').textContent = '0';
+        chart.data.datasets[0].data = [0.0001, totalSec];
+        chart.update('none');
+        return;
+      }
+      const d = Math.floor(sec/86400), h = Math.floor((sec%86400)/3600),
+            m = Math.floor((sec%3600)/60), s = sec%60;
+      document.getElementById('countdown').textContent =
+        'Time left: ' + (d?d+'d ':'') + h + 'h ' + m + 'm ' + s + 's';
+      document.getElementById('daysLeft').textContent = String(Math.max(0, Math.ceil(sec/86400)));
+      chart.data.datasets[0].data = [sec, Math.max(0.0001, totalSec - sec)];
+      chart.update('none');
       sec--;
       setTimeout(tick, 1000);
     }

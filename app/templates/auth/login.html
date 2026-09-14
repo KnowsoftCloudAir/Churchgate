@@ -5,46 +5,41 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Sign in — Eleon</title>
   <link rel="icon" href="/static/icons/icon-192.png">
-  <script src="https://cdn.tailwindcss.com"></script>
   <link rel="manifest" href="/manifest.webmanifest">
   <meta name="theme-color" content="#0f172a">
   <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
-  <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-title" content="Eleon">
+  <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4">
-  <form method="post" action="/login" class="w-full max-w-md rounded-3xl border border-white/10 bg-slate-900/90 p-8 space-y-4">
-    <div class="flex items-center gap-3">
-      <img src="/static/icons/icon-192.png" alt="" class="h-12 w-12 rounded-xl">
-      <div>
-        <a href="/" class="text-teal-300 text-sm font-semibold">← Eleon</a>
-        <h1 class="text-2xl font-bold">Sign in</h1>
-      </div>
+  <form method="post" action="/login" class="w-full max-w-md rounded-3xl border border-white/10 bg-slate-900/95 p-8 space-y-5 shadow-2xl">
+    <!-- Single logo only -->
+    <div class="text-center">
+      <img src="/static/icons/icon-512-maskable.png" alt="Eleon Knowsoft"
+           class="h-20 w-20 mx-auto rounded-2xl shadow-lg object-cover border border-white/10">
+      <h1 class="text-2xl font-bold mt-4">Sign in</h1>
+      <p class="text-xs text-teal-300/90 mt-1">Knowsoft · Eleon</p>
     </div>
-    {% if error %}<p class="text-rose-400 text-sm rounded-lg bg-rose-950/40 border border-rose-500/30 px-3 py-2">{{ error }}</p>{% endif %}
+    {% if error %}
+    <p class="text-rose-400 text-sm rounded-lg bg-rose-950/40 border border-rose-500/30 px-3 py-2">{{ error }}</p>
+    {% endif %}
     <div>
       <label class="text-xs text-slate-400">Email</label>
-      <input name="email" type="email" required value="demo@eleon.app" class="mt-1 w-full rounded-xl px-3 py-2.5 text-slate-900">
+      <input name="email" type="email" required autocomplete="username"
+             class="mt-1 w-full rounded-xl px-3 py-2.5 text-slate-900" placeholder="you@email.com">
     </div>
     <div>
       <label class="text-xs text-slate-400">Password</label>
-      <input name="password" type="password" required value="demo123" class="mt-1 w-full rounded-xl px-3 py-2.5 text-slate-900">
+      <input name="password" type="password" required autocomplete="current-password"
+             class="mt-1 w-full rounded-xl px-3 py-2.5 text-slate-900" placeholder="••••••••">
     </div>
-    <button class="w-full rounded-xl bg-teal-600 hover:bg-teal-500 py-2.5 font-bold">Enter Eleon</button>
-    <div class="rounded-xl bg-slate-800/80 border border-white/10 p-3 text-xs text-slate-300 space-y-1">
-      <p class="font-semibold text-teal-200">Demo accounts</p>
-      <p>Presenter: <code class="text-amber-200">demo@eleon.app</code> / <code class="text-amber-200">demo123</code></p>
-      <p>Admin: <code class="text-amber-200">admin@eleon.knowsoft</code> / <code class="text-amber-200">admin123</code></p>
-    </div>
-    <p class="text-sm text-slate-400">No account? <a href="/register" class="text-teal-300">Register</a></p>
+    <button type="submit" class="w-full rounded-xl bg-teal-600 hover:bg-teal-500 py-2.5 font-bold">Enter Eleon</button>
+    <p class="text-sm text-slate-400 text-center">No account? <a href="/register" class="text-teal-300 font-semibold">Register</a></p>
+    <p class="text-center"><a href="/" class="text-xs text-slate-500 hover:text-slate-300">← Home</a></p>
   </form>
-
   <script>
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js').catch(function(){});
   }
   </script>
-
 </body>
 </html>
