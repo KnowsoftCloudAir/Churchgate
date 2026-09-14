@@ -8,13 +8,14 @@ import re
 import io
 from fastapi.responses import StreamingResponse
 
-from fastapi import FastAPI, Request, Depends, Form, UploadFile, File, HTTPException
+from fastapi import FastAPI, Request, Depends, Form, UploadFile, File, HTTPException, WebSocket, WebSocketDisconnect, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlmodel import Session, select
 
 from app.database import create_db_and_tables, get_session, engine
+from app.live_hub import hub
 from app.models import User, UserRole, UserStatus, LoginCode, Presentation, Slide, EvalSession, EvalQuestion, EvalResponse, PresentationQANote, LiveSession, LiveViewer, LiveQuestion
 from app.auth import (
     hash_password, verify_password, create_token,
@@ -958,6 +959,129 @@ async def export_pptx(pid: int, user: User = Depends(require_user), session: Ses
 
 
 
+
+# ---------- Real-time live rooms (WebSocket) ----------
+class LiveHub:
+    def __init__(self):
+        self.rooms: dict = {}  # token -> {"host": WebSocket|None, "viewers": {vid: ws}, "names": {vid: name}}
+
+    def room(self, token: str) -> dict:
+        if token not in self.rooms:
+            self.rooms[token] = {"host": None, "viewers": {}, "names": {}}
+        return self.rooms[token]
+
+    async def broadcast(self, token: str, message: dict, skip: WebSocket = None):
+        import json as _json
+        data = _json.dumps(message)
+        room = self.rooms.get(token) or {}
+        targets = []
+        if room.get("host"):
+            targets.append(room["host"])
+        targets.extend(room.get("viewers", {}).values())
+        for ws in targets:
+            if ws is skip:
+                continue
+            try:
+                await ws.send_text(data)
+            except Exception:
+                pass
+
+    def online_list(self, token: str) -> list:
+        room = self.rooms.get(token) or {}
+        out = []
+        if room.get("host"):
+            out.append({"role": "host", "name": "Presenter", "id": "host"})
+        for vid, name in room.get("names", {}).items():
+            if vid in room.get("viewers", {}):
+                out.append({"role": "viewer", "name": name, "id": str(vid)})
+        return out
+
+live_hub = LiveHub()
+
+
+@app.websocket("/ws/live/{token}")
+async def ws_live(websocket: WebSocket, token: str):
+    await websocket.accept()
+    role = websocket.query_params.get("role") or "viewer"
+    vid = websocket.query_params.get("vid") or ""
+    name = websocket.query_params.get("name") or "Guest"
+    room = live_hub.room(token)
+    from sqlmodel import Session as S
+    try:
+        if role == "host":
+            room["host"] = websocket
+        else:
+            room["viewers"][vid] = websocket
+            room["names"][vid] = name
+        await live_hub.broadcast(token, {"type": "online", "list": live_hub.online_list(token)})
+        with S(engine) as sess:
+            ls = sess.exec(select(LiveSession).where(LiveSession.token == token)).first()
+            if ls:
+                await websocket.send_json({"type": "slide", "index": ls.current_index})
+        while True:
+            raw = await websocket.receive_text()
+            try:
+                msg = __import__("json").loads(raw)
+            except Exception:
+                continue
+            mtype = msg.get("type")
+            if mtype == "slide" and role == "host":
+                idx = int(msg.get("index") or 0)
+                with S(engine) as sess:
+                    ls = sess.exec(select(LiveSession).where(LiveSession.token == token)).first()
+                    if ls:
+                        ls.current_index = idx
+                        sess.add(ls)
+                        sess.commit()
+                await live_hub.broadcast(token, {"type": "slide", "index": idx}, skip=websocket)
+            elif mtype == "speak":
+                # host Eleon speech text → all viewers TTS
+                await live_hub.broadcast(token, {
+                    "type": "speak",
+                    "text": (msg.get("text") or "")[:4000],
+                }, skip=None)
+            elif mtype == "question" and role != "host":
+                text = (msg.get("text") or "").strip()[:500]
+                if not text:
+                    continue
+                with S(engine) as sess:
+                    ls = sess.exec(select(LiveSession).where(LiveSession.token == token)).first()
+                    if not ls:
+                        continue
+                    q = LiveQuestion(session_id=ls.id, viewer_name=name, text=text)
+                    sess.add(q)
+                    sess.commit()
+                    sess.refresh(q)
+                    qid = q.id
+                await live_hub.broadcast(token, {
+                    "type": "question",
+                    "id": qid,
+                    "name": name,
+                    "text": text,
+                })
+            elif mtype == "ping":
+                await websocket.send_json({"type": "pong"})
+            elif mtype == "admit" and role == "host":
+                await live_hub.broadcast(token, msg)
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        pass
+    finally:
+        room = live_hub.rooms.get(token)
+        if room:
+            if role == "host" and room.get("host") is websocket:
+                room["host"] = None
+            if vid in room.get("viewers", {}):
+                room["viewers"].pop(vid, None)
+                room["names"].pop(vid, None)
+            try:
+                await live_hub.broadcast(token, {"type": "online", "list": live_hub.online_list(token)})
+            except Exception:
+                pass
+
+
+
 # ---------- Live join / audience ----------
 @app.post("/presentations/{pid}/live/start")
 async def live_start(pid: int, user: User = Depends(require_user), session: Session = Depends(get_session)):
@@ -1058,6 +1182,14 @@ async def join_request(token: str, name: str = Form(...), session: Session = Dep
     session.add(v)
     session.commit()
     session.refresh(v)
+    # notify host rooms immediately (best-effort)
+    try:
+        import asyncio
+        asyncio.get_event_loop().create_task(hub.broadcast(token, {
+            "type": "join_request", "vid": v.id, "name": v.name
+        }))
+    except Exception:
+        pass
     return RedirectResponse(f"/join/{token}/wait?vid={v.id}", status_code=303)
 
 
@@ -1345,6 +1477,84 @@ async def evaluate_certificate(token: str, request: Request, session: Session = 
     return templates.TemplateResponse("presenter/certificate.html", {
         "request": request, "name": name, "eval": ev, "presentation": p,
     })
+
+
+
+
+@app.websocket("/ws/live/{token}")
+async def ws_live(websocket: WebSocket, token: str):
+    """Real-time channel: host + admitted viewers."""
+    role = websocket.query_params.get("role") or "viewer"
+    vid = websocket.query_params.get("vid")
+    await hub.connect(token, websocket, role=role)
+    try:
+        while True:
+            raw = await websocket.receive_text()
+            try:
+                msg = __import__("json").loads(raw)
+            except Exception:
+                continue
+            mtype = msg.get("type")
+            # Host slide / speech
+            if mtype in ("slide", "speak", "speak_end", "phase"):
+                if role != "host":
+                    continue
+                await hub.broadcast(token, msg, exclude=None)
+            elif mtype == "question":
+                # viewer question — persist + fan out immediately
+                from sqlmodel import Session as S
+                from app.database import engine
+                text = (msg.get("text") or "")[:500]
+                name = (msg.get("name") or "Guest")[:80]
+                qid = None
+                with S(engine) as session:
+                    ls = session.exec(select(LiveSession).where(LiveSession.token == token)).first()
+                    if ls and text:
+                        q = LiveQuestion(session_id=ls.id, viewer_name=name, text=text)
+                        session.add(q)
+                        session.commit()
+                        session.refresh(q)
+                        qid = q.id
+                await hub.broadcast(token, {
+                    "type": "question",
+                    "id": qid,
+                    "name": name,
+                    "text": text,
+                })
+            elif mtype == "admit":
+                if role != "host":
+                    continue
+                from sqlmodel import Session as S
+                from app.database import engine
+                with S(engine) as session:
+                    v = session.get(LiveViewer, int(msg.get("vid") or 0))
+                    if v:
+                        v.status = "admitted" if msg.get("admit", True) else "denied"
+                        session.add(v)
+                        session.commit()
+                await hub.broadcast(token, {
+                    "type": "admit_result",
+                    "vid": msg.get("vid"),
+                    "status": "admitted" if msg.get("admit", True) else "denied",
+                    "name": msg.get("name") or "",
+                })
+            elif mtype == "answer_done":
+                if role != "host":
+                    continue
+                await hub.broadcast(token, msg)
+            elif mtype == "join_request":
+                # optional notify host of new pending (DB already has viewer)
+                await hub.broadcast(token, {
+                    "type": "join_request",
+                    "vid": msg.get("vid"),
+                    "name": msg.get("name") or "Guest",
+                })
+            elif mtype == "ping":
+                await websocket.send_text('{"type":"pong"}')
+    except WebSocketDisconnect:
+        await hub.disconnect(token, websocket)
+    except Exception:
+        await hub.disconnect(token, websocket)
 
 
 
