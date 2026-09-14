@@ -1,22 +1,23 @@
-# Knowsoft Churchgate
+# Eleon — Your presentation partner
 
-Church hierarchy, membership and growth analytics platform.
+Knowsoft / Churchgate-family branding.
 
-## Hierarchy
-Global → Country → State → Group → District (primary data unit)
+## Highlights
 
-## Quick start
+- Splash: *Welcome to Eleon… your presentation partner*
+- Register + admin **week / month / year** access codes + login numbers
+- **Import PDF/TXT/MD** → auto-analysed into slides (+ thank-you slide)
+- Side **Enhance** buttons (editor + present mode)
+- **Eleon** voice/text: navigate, enhance, Q&A from all loaded content
+- Closing: *Thank you for your attention. Any questions?* → wait **60s** → off
+- Outside knowledge: *Sorry I can't help with that, however, my partner can respond to that* → off
+- Export **PDF**, **share link**
+
+## Run
+
 ```bash
 pip install -r requirements.txt
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
+uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
-## Default General Admin
-- URL: /ks-admin/login
-- Email: admin@knowsoft.com
-- Password: Admin@12345
-
-## Render
-- Build: `pip install -r requirements.txt`
-- Start: `uvicorn main:app --host 0.0.0.0 --port $PORT`
-- Env: `PYTHON_VERSION=3.12.8`, `SECRET_KEY=...`, `DATABASE_URL=...`
+Admin: `admin@eleon.knowsoft` / `Eleon#Admin2026!`
