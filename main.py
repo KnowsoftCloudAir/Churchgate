@@ -528,8 +528,8 @@ async def eleon_ask(
         return JSONResponse({
             "ok": True,
             "action": "outside",
-            "speak": "Sorry I can't help with that, however, my partner can respond to that.",
-            "go_off": True,
+            "speak": "Sorry I can't help with that, however, my partner can.",
+            "go_off": False,
         })
 
     # Closing phase — only Q&A, no nav required
@@ -560,6 +560,12 @@ async def eleon_ask(
         return JSONResponse({"ok": True, "action": "prev", "speak": "Going to the previous slide."})
     if ql in ("stay", "stay here", "current", "this slide"):
         return JSONResponse({"ok": True, "action": "stay", "speak": "Staying on this slide."})
+    if ql in ("stop", "eleon stop", "pause", "hold"):
+        return JSONResponse({"ok": True, "action": "stop", "speak": "Paused."})
+    if ql in ("continue", "eleon continue", "resume"):
+        return JSONResponse({"ok": True, "action": "continue", "speak": "Continuing."})
+    if ql in ("start", "eleon start", "begin", "start autoplay", "start auto play"):
+        return JSONResponse({"ok": True, "action": "start", "speak": "Starting presentation."})
     if ql in ("read", "read slide", "read the slide", "read this", "read this slide", "read everything", "what does this say"):
         return JSONResponse({"ok": True, "action": "read", "speak": ""})
     if ql in ("read all", "summarize", "summary", "overview"):
@@ -828,6 +834,62 @@ async def translate_presentation(
     session.add(p)
     session.commit()
     return JSONResponse({"ok": True, "lang": lang, "slides": len(slides)})
+
+
+
+@app.get("/presentations/{pid}/export.pptx")
+async def export_pptx(pid: int, user: User = Depends(require_user), session: Session = Depends(get_session)):
+    p = session.get(Presentation, pid)
+    if not p or p.owner_id != user.id:
+        raise HTTPException(404)
+    slides = session.exec(select(Slide).where(Slide.presentation_id == pid).order_by(Slide.position)).all()
+    try:
+        from pptx import Presentation as PP
+        from pptx.util import Inches, Pt
+        from pptx.dml.color import RgbColor
+        from pptx.enum.text import PP_ALIGN
+    except ImportError:
+        raise HTTPException(500, "python-pptx not installed")
+    prs = PP()
+    prs.slide_width = Inches(13.333)
+    prs.slide_height = Inches(7.5)
+    blank = prs.slide_layouts[6]
+    for s in slides:
+        slide = prs.slides.add_slide(blank)
+        # dark background
+        shape = slide.shapes.add_shape(1, Inches(0), Inches(0), prs.slide_width, prs.slide_height)  # rectangle
+        shape.fill.solid()
+        shape.fill.fore_color.rgb = RgbColor(0x0F, 0x17, 0x2A)
+        shape.line.fill.background()
+        title_box = slide.shapes.add_textbox(Inches(0.6), Inches(0.5), Inches(12), Inches(1.2))
+        tf = title_box.text_frame
+        tf.word_wrap = True
+        run = tf.paragraphs[0].add_run()
+        run.text = s.title or "Slide"
+        run.font.size = Pt(36)
+        run.font.bold = True
+        run.font.color.rgb = RgbColor(0x5E, 0xEA, 0xD4)
+        body_box = slide.shapes.add_textbox(Inches(0.6), Inches(2.0), Inches(12), Inches(4.5))
+        bf = body_box.text_frame
+        bf.word_wrap = True
+        for i, line in enumerate((s.body or "").splitlines() or [""]):
+            para = bf.paragraphs[0] if i == 0 else bf.add_paragraph()
+            run = para.add_run()
+            run.text = line
+            run.font.size = Pt(20)
+            run.font.color.rgb = RgbColor(0xE2, 0xE8, 0xF0)
+        if s.notes:
+            note_box = slide.shapes.add_textbox(Inches(0.6), Inches(6.6), Inches(12), Inches(0.6))
+            nf = note_box.text_frame
+            run = nf.paragraphs[0].add_run()
+            run.text = "Notes: " + (s.notes or "")[:200]
+            run.font.size = Pt(12)
+            run.font.color.rgb = RgbColor(0x94, 0xA3, 0xB8)
+    buf = io.BytesIO()
+    prs.save(buf)
+    buf.seek(0)
+    return StreamingResponse(buf, media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                             headers={"Content-Disposition": f'attachment; filename="eleon_{pid}.pptx"'})
 
 
 # ---------- Admin ----------

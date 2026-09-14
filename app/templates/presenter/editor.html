@@ -13,6 +13,7 @@
     <a href="/dashboard" class="text-teal-300 text-sm font-semibold">← Dashboard</a>
     <h1 class="font-bold truncate">{{ presentation.title }}</h1>
     <a href="/presentations/{{ presentation.id }}/export.pdf" class="text-xs border border-white/15 rounded-lg px-2 py-1">PDF</a>
+    <a href="/presentations/{{ presentation.id }}/export.pptx" class="text-xs border border-amber-400/40 text-amber-200 rounded-lg px-2 py-1 font-semibold">PowerPoint</a>
     <a href="/presentations/{{ presentation.id }}/notes.txt" class="text-xs border border-white/15 rounded-lg px-2 py-1">Notes</a>
     <button type="button" onclick="shareLink()" class="text-xs border border-white/15 rounded-lg px-2 py-1">Share</button>
     <select id="trLang" class="text-xs rounded-lg px-1 py-1 text-slate-900">
