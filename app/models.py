@@ -76,6 +76,7 @@ class Slide(SQLModel, table=True):
     pattern: str = Field(default="gradient_teal")
     image_style: str = Field(default="frame")
     word_emphasis: bool = Field(default=True)
+    images_json: Optional[str] = Field(default=None, sa_column=Column(Text))  # JSON list of image paths
 
 
 class EvalSession(SQLModel, table=True):
