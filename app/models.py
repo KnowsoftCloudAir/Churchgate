@@ -136,3 +136,9 @@ class LiveQuestion(SQLModel, table=True):
     answered: bool = Field(default=False)
     answer: str = Field(default="", sa_column=Column(Text))
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class AppSetting(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    key: str = Field(index=True, unique=True)
+    value: str = Field(default="", sa_column=Column(Text))

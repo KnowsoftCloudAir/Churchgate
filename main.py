@@ -16,7 +16,7 @@ from sqlmodel import Session, select
 
 from app.database import create_db_and_tables, get_session, engine
 from app.live_hub import hub
-from app.models import User, UserRole, UserStatus, LoginCode, Presentation, Slide, EvalSession, EvalQuestion, EvalResponse, PresentationQANote, LiveSession, LiveViewer, LiveQuestion
+from app.models import User, UserRole, UserStatus, LoginCode, Presentation, Slide, EvalSession, EvalQuestion, EvalResponse, PresentationQANote, LiveSession, LiveViewer, LiveQuestion, AppSetting
 from app.auth import (
     hash_password, verify_password, create_token,
     require_user, require_admin, user_from_request,
@@ -960,6 +960,21 @@ async def export_pptx(pid: int, user: User = Depends(require_user), session: Ses
 
 
 
+
+def get_setting(session: Session, key: str, default: str = "") -> str:
+    row = session.exec(select(AppSetting).where(AppSetting.key == key)).first()
+    return row.value if row else default
+
+def set_setting(session: Session, key: str, value: str) -> None:
+    row = session.exec(select(AppSetting).where(AppSetting.key == key)).first()
+    if row:
+        row.value = value
+        session.add(row)
+    else:
+        session.add(AppSetting(key=key, value=value))
+    session.commit()
+
+
 # ---------- Real-time live rooms (WebSocket) ----------
 class LiveHub:
     def __init__(self):
@@ -1061,6 +1076,30 @@ async def ws_live(websocket: WebSocket, token: str):
                 })
             elif mtype == "ping":
                 await websocket.send_json({"type": "pong"})
+
+            elif mtype == "reaction":
+                await live_hub.broadcast(token, {
+                    "type": "reaction",
+                    "emoji": msg.get("emoji") or "👏",
+                    "name": name if role != "host" else (msg.get("name") or "Presenter"),
+                })
+            elif mtype == "voice_chunk":
+                # base64 audio from presenter → all viewers
+                if role == "host":
+                    await live_hub.broadcast(token, {
+                        "type": "voice_chunk",
+                        "audio": msg.get("audio") or "",
+                        "mime": msg.get("mime") or "audio/webm",
+                    }, skip=websocket)
+            elif mtype == "end" and role == "host":
+                with S(engine) as sess:
+                    ls = sess.exec(select(LiveSession).where(LiveSession.token == token)).first()
+                    if ls:
+                        ls.is_active = False
+                        sess.add(ls)
+                        sess.commit()
+                await live_hub.broadcast(token, {"type": "ended", "message": "The presenter has ended the session."})
+
             elif mtype == "admit" and role == "host":
                 await live_hub.broadcast(token, msg)
     except WebSocketDisconnect:
@@ -1107,6 +1146,10 @@ async def live_stop(pid: int, user: User = Depends(require_user), session: Sessi
     for ls in rows:
         ls.is_active = False
         session.add(ls)
+        try:
+            await live_hub.broadcast(ls.token, {"type": "ended", "message": "The presenter has ended the session."})
+        except Exception:
+            pass
     session.commit()
     return JSONResponse({"ok": True})
 
@@ -1561,6 +1604,72 @@ async def ws_live(websocket: WebSocket, token: str):
     except Exception:
         await hub.disconnect(token, websocket)
 
+
+
+
+@app.get("/admin/settings", response_class=HTMLResponse)
+async def admin_settings_page(request: Request, user: User = Depends(require_admin), session: Session = Depends(get_session)):
+    dl = get_setting(session, "eleon_download_url", "https://knowsoftconsult.com")
+    android = get_setting(session, "eleon_android_url", "")
+    ios = get_setting(session, "eleon_ios_url", "")
+    windows = get_setting(session, "eleon_windows_url", "")
+    return templates.TemplateResponse("admin/settings.html", {
+        "request": request, "user": user,
+        "download_url": dl, "android_url": android, "ios_url": ios, "windows_url": windows,
+    })
+
+
+@app.post("/admin/settings")
+async def admin_settings_save(
+    request: Request,
+    user: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+    download_url: str = Form(""),
+    android_url: str = Form(""),
+    ios_url: str = Form(""),
+    windows_url: str = Form(""),
+):
+    set_setting(session, "eleon_download_url", download_url.strip())
+    set_setting(session, "eleon_android_url", android_url.strip())
+    set_setting(session, "eleon_ios_url", ios_url.strip())
+    set_setting(session, "eleon_windows_url", windows_url.strip())
+    return RedirectResponse("/admin/settings", status_code=303)
+
+
+@app.get("/api/download-links")
+async def api_download_links(session: Session = Depends(get_session)):
+    return JSONResponse({
+        "download_url": get_setting(session, "eleon_download_url", "https://knowsoftconsult.com"),
+        "android_url": get_setting(session, "eleon_android_url", ""),
+        "ios_url": get_setting(session, "eleon_ios_url", ""),
+        "windows_url": get_setting(session, "eleon_windows_url", ""),
+        "app_scheme": "eleon://join/",
+    })
+
+
+@app.post("/api/translate-text")
+async def api_translate_text(request: Request):
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+    text = (data.get("text") or "")[:2500]
+    lang = (data.get("lang") or "es")[:5]
+    if not text:
+        return JSONResponse({"ok": True, "text": ""})
+    try:
+        import urllib.parse, urllib.request, json as _json
+        out = []
+        for i in range(0, len(text), 400):
+            chunk = text[i:i+400]
+            q = urllib.parse.quote(chunk)
+            url = f"https://api.mymemory.translated.net/get?q={q}&langpair=en|{lang}"
+            with urllib.request.urlopen(url, timeout=12) as resp:
+                j = _json.loads(resp.read().decode())
+            out.append(j.get("responseData", {}).get("translatedText") or chunk)
+        return JSONResponse({"ok": True, "text": " ".join(out)})
+    except Exception as e:
+        return JSONResponse({"ok": False, "text": text, "error": str(e)})
 
 
 # ---------- Admin ----------

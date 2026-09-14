@@ -8,21 +8,51 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     html,body{height:100%;margin:0;background:#020617;color:#fff;overflow:hidden;}
-    #stage{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:1.25rem 1.25rem 8rem;}
+    #stage{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:1.25rem 1.25rem 9.5rem;}
     .card{max-width:960px;width:100%;border-radius:1.25rem;padding:1.75rem;background:linear-gradient(145deg,rgba(15,23,42,.92),rgba(15,23,42,.75));border:1px solid rgba(45,212,191,.35);}
-    .chat{position:fixed;bottom:0;left:0;right:0;z-index:20;background:rgba(15,23,42,.96);border-top:1px solid rgba(255,255,255,.1);padding:.65rem;}
-    .online{position:fixed;top:2.5rem;right:.5rem;z-index:15;width:9rem;font-size:11px;background:rgba(15,23,42,.85);border:1px solid rgba(255,255,255,.12);border-radius:.75rem;padding:.5rem;max-height:40vh;overflow:auto;}
+    .chat{position:fixed;bottom:0;left:0;right:0;z-index:20;background:rgba(15,23,42,.96);border-top:1px solid rgba(255,255,255,.1);padding:.55rem;}
+    .online{position:fixed;top:2.5rem;right:.5rem;z-index:15;width:9rem;font-size:11px;background:rgba(15,23,42,.85);border:1px solid rgba(255,255,255,.12);border-radius:.75rem;padding:.5rem;max-height:35vh;overflow:auto;}
+    .react-float{position:fixed;bottom:8rem;font-size:1.75rem;animation:floatUp 2.2s ease forwards;pointer-events:none;z-index:40;}
+    @keyframes floatUp{0%{opacity:1;transform:translateY(0) scale(1)}100%{opacity:0;transform:translateY(-120px) scale(1.3)}}
   </style>
 </head>
 <body>
-  <div class="fixed top-3 left-3 text-xs text-teal-300 z-10">Live · {{ viewer.name }} · <span id="conn">connecting…</span> · slide <span id="snum">1</span></div>
+  <div class="fixed top-3 left-3 text-xs text-teal-300 z-10">
+    Live · {{ viewer.name }} · <span id="conn">…</span> · <span id="snum">1</span>
+    · <span id="timer">00:00</span>
+  </div>
   <div class="online" id="online"><p class="text-teal-300 font-semibold">Online</p></div>
   <div id="stage"></div>
   <div class="chat">
-    <p class="text-[11px] text-slate-400 mb-1 max-w-3xl mx-auto">Ask a question</p>
+    <div class="max-w-3xl mx-auto flex flex-wrap gap-1 mb-1 items-center">
+      <button type="button" class="rx text-lg" data-e="👏">👏</button>
+      <button type="button" class="rx text-lg" data-e="😂">😂</button>
+      <button type="button" class="rx text-lg" data-e="❤️">❤️</button>
+      <button type="button" class="rx text-lg" data-e="👍">👍</button>
+      <button type="button" class="rx text-lg" data-e="👎">👎</button>
+      <button type="button" class="rx text-lg" data-e="🔥">🔥</button>
+      <select id="lang" class="text-xs rounded-lg px-1 py-1 text-slate-900 ml-2">
+        <option value="">No translation</option>
+        <option value="es">Spanish</option>
+        <option value="fr">French</option>
+        <option value="pt">Portuguese</option>
+        <option value="de">German</option>
+        <option value="ar">Arabic</option>
+        <option value="hi">Hindi</option>
+        <option value="zh-CN">Chinese</option>
+        <option value="yo">Yoruba</option>
+        <option value="ig">Igbo</option>
+        <option value="ha">Hausa</option>
+      </select>
+      <span class="text-[10px] text-slate-500">Slide + Eleon → your language</span>
+    </div>
     <div class="flex gap-2 max-w-3xl mx-auto">
       <input id="q" type="text" placeholder="Your question…" class="flex-1 rounded-xl px-3 py-2 text-slate-900 text-sm">
       <button type="button" onclick="sendQ()" class="rounded-xl bg-teal-600 px-4 py-2 text-sm font-bold">Send</button>
+    </div>
+    <div class="max-w-3xl mx-auto mt-1 flex flex-wrap gap-2 items-center">
+      <a id="dlBtn" href="#" target="_blank" class="text-[11px] text-amber-300 underline">Download Eleon for better experience</a>
+      <a id="appDeep" href="#" class="text-[11px] text-teal-300 underline hidden">Open in Eleon app</a>
     </div>
   </div>
   <script>
@@ -30,41 +60,93 @@
   const NAME = {{ viewer.name|tojson }};
   const VID = String({{ vid|tojson }});
   let slides = [], idx = 0, ws = null, lastIdx = -1;
+  let startedAt = Date.now();
+  let preferLang = localStorage.getItem('eleon_lang') || '';
+  document.getElementById('lang').value = preferLang;
 
   function esc(t){return (t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');}
-  function applyIndex(i) {
+  async function tr(text){
+    if (!preferLang || !text) return text;
+    try {
+      const r = await fetch('/api/translate-text', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ text, lang: preferLang })
+      });
+      const j = await r.json();
+      return j.text || text;
+    } catch(e) { return text; }
+  }
+  async function applyIndex(i) {
     if (!slides.length) return;
     const n = Math.max(0, Math.min(slides.length - 1, Number(i) || 0));
-    if (n === lastIdx && document.getElementById('stage').innerHTML) return;
-    idx = n;
-    lastIdx = n;
+    idx = n; lastIdx = n;
     const s = slides[idx] || {title:'', body:''};
     document.getElementById('snum').textContent = (idx + 1) + '/' + slides.length;
+    let title = s.title || '', body = s.body || '';
+    if (preferLang) {
+      title = await tr(title);
+      body = await tr(body);
+    }
     document.getElementById('stage').innerHTML = `
       <div class="card">
         <p class="text-[10px] uppercase tracking-widest text-teal-300 mb-2">Knowsoft Eleon · Live</p>
-        <h1 class="text-2xl sm:text-4xl font-black mb-3">${esc(s.title||'')}</h1>
-        <div class="text-slate-200 text-base sm:text-lg whitespace-pre-wrap">${esc(s.body||'')}</div>
-        ${s.image || s.onlineImage ? `<img src="${esc(s.onlineImage||s.image)}" class="mt-4 max-h-48 rounded-xl mx-auto">` : ''}
+        <h1 class="text-2xl sm:text-4xl font-black mb-3">${esc(title)}</h1>
+        <div class="text-slate-200 text-base sm:text-lg whitespace-pre-wrap">${esc(body)}</div>
       </div>`;
   }
-  function speak(text){
+  async function speak(text){
     if (!text || !window.speechSynthesis) return;
+    let out = text;
+    if (preferLang) out = await tr(text);
     speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(String(text).slice(0, 3500));
+    const u = new SpeechSynthesisUtterance(String(out).slice(0, 3500));
     u.rate = 0.92;
+    // try match voice language
+    const voices = speechSynthesis.getVoices();
+    const v = voices.find(x => x.lang.toLowerCase().startsWith((preferLang||'en').slice(0,2)));
+    if (v) u.voice = v;
     speechSynthesis.speak(u);
   }
   function renderOnline(list){
     document.getElementById('online').innerHTML = '<p class="text-teal-300 font-semibold mb-1">Online</p>' +
-      (list||[]).map(p => `<div>${p.role==='host'?'🎤':'👤'} ${esc(p.name)}</div>`).join('') ||
-      '<p class="text-slate-500">—</p>';
+      (list||[]).map(p => `<div>${p.role==='host'?'🎤':'👤'} ${esc(p.name)}</div>`).join('') || '—';
+  }
+  function floatReaction(emoji, name){
+    const el = document.createElement('div');
+    el.className = 'react-float';
+    el.style.left = (20 + Math.random()*60) + '%';
+    el.textContent = emoji;
+    el.title = name || '';
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 2200);
+  }
+  function playVoiceChunk(b64, mime){
+    try {
+      const bin = atob(b64);
+      const arr = new Uint8Array(bin.length);
+      for (let i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);
+      const blob = new Blob([arr], {type: mime || 'audio/webm'});
+      const url = URL.createObjectURL(blob);
+      const a = new Audio(url);
+      a.play().catch(()=>{});
+    } catch(e) {}
+  }
+  function endSession(msg){
+    document.getElementById('conn').textContent = 'ended';
+    document.getElementById('stage').innerHTML = `<div class="card text-center"><h1 class="text-2xl font-bold mb-2">Session ended</h1><p class="text-slate-300">${esc(msg||'Presenter closed the live session.')}</p>
+      <a id="dlEnd" href="#" class="inline-block mt-4 text-amber-300 underline">Download Eleon for better experience</a></div>`;
+    if (ws) try { ws.close(); } catch(e) {}
+    fetch('/api/download-links').then(r=>r.json()).then(j=>{
+      const a = document.getElementById('dlEnd');
+      if (a && j.download_url) a.href = j.download_url;
+    });
   }
   async function loadSlides(){
     const r = await fetch('/api/live/'+TOKEN+'/state');
     const j = await r.json();
+    if (!j.active) { endSession(); return j; }
     slides = j.slides || [];
-    applyIndex(j.index || 0);
+    await applyIndex(j.index || 0);
     return j;
   }
   function connect(){
@@ -75,50 +157,67 @@
     ws = new WebSocket(url);
     ws.onopen = () => { document.getElementById('conn').textContent = 'live'; };
     ws.onclose = () => {
-      document.getElementById('conn').textContent = 'reconnecting…';
-      setTimeout(connect, 1000);
-    };
-    ws.onerror = () => { document.getElementById('conn').textContent = 'ws error'; };
-    ws.onmessage = (ev) => {
-      let msg; try { msg = JSON.parse(ev.data); } catch(e) { return; }
-      if (msg.type === 'slide') {
-        applyIndex(msg.index);
+      if (document.getElementById('conn').textContent !== 'ended') {
+        document.getElementById('conn').textContent = 'reconnecting…';
+        setTimeout(connect, 1000);
       }
-      if (msg.type === 'speak') speak(msg.text);
+    };
+    ws.onmessage = async (ev) => {
+      let msg; try { msg = JSON.parse(ev.data); } catch(e) { return; }
+      if (msg.type === 'slide') await applyIndex(msg.index);
+      if (msg.type === 'speak') await speak(msg.text);
       if (msg.type === 'online') renderOnline(msg.list);
+      if (msg.type === 'reaction') floatReaction(msg.emoji, msg.name);
+      if (msg.type === 'voice_chunk' && msg.audio) playVoiceChunk(msg.audio, msg.mime);
+      if (msg.type === 'ended') endSession(msg.message);
     };
   }
   function sendQ(){
     const text = document.getElementById('q').value.trim();
     if (!text) return;
-    if (ws && ws.readyState === 1) {
-      ws.send(JSON.stringify({ type: 'question', text: text }));
-    } else {
-      fetch('/api/join/'+TOKEN+'/ask', {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ text, name: NAME })
-      });
-    }
+    if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'question', text }));
+    else fetch('/api/join/'+TOKEN+'/ask', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ text, name: NAME })});
     document.getElementById('q').value = '';
-    document.getElementById('q').placeholder = 'Sent ✓';
   }
   document.getElementById('q').addEventListener('keydown', e => { if (e.key==='Enter') sendQ(); });
-
-  // HTTP poll backup every 1s so slides always track host
-  async function pollIndex(){
-    try {
-      const r = await fetch('/api/live/'+TOKEN+'/state');
-      const j = await r.json();
-      if (j.slides && j.slides.length) slides = j.slides;
-      if (typeof j.index === 'number') applyIndex(j.index);
-      if (!j.active) document.getElementById('conn').textContent = 'ended';
-    } catch(e) {}
-  }
-
+  document.querySelectorAll('.rx').forEach(btn => btn.addEventListener('click', () => {
+    const emoji = btn.dataset.e;
+    floatReaction(emoji, NAME);
+    if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'reaction', emoji }));
+  }));
+  document.getElementById('lang').addEventListener('change', async (e) => {
+    preferLang = e.target.value;
+    localStorage.setItem('eleon_lang', preferLang);
+    await applyIndex(idx);
+  });
+  setInterval(() => {
+    const s = Math.floor((Date.now()-startedAt)/1000);
+    const m = String(Math.floor(s/60)).padStart(2,'0');
+    const ss = String(s%60).padStart(2,'0');
+    document.getElementById('timer').textContent = m+':'+ss;
+  }, 1000);
+  fetch('/api/download-links').then(r=>r.json()).then(j => {
+    const dl = document.getElementById('dlBtn');
+    dl.href = j.download_url || '#';
+    const deep = document.getElementById('appDeep');
+    deep.href = (j.app_scheme || 'eleon://join/') + TOKEN;
+    deep.classList.remove('hidden');
+    // try open app if installed (best-effort)
+    if (/Android|iPhone|iPad/i.test(navigator.userAgent)) {
+      deep.click();
+    }
+  });
   loadSlides().then(() => {
     connect();
-    setInterval(pollIndex, 1000);
-    setInterval(() => { if (ws && ws.readyState === 1) ws.send(JSON.stringify({type:'ping'})); }, 20000);
+    setInterval(async () => {
+      try {
+        const r = await fetch('/api/live/'+TOKEN+'/state');
+        const j = await r.json();
+        if (!j.active) { endSession(); return; }
+        if (j.slides && j.slides.length) slides = j.slides;
+        if (typeof j.index === 'number' && j.index !== lastIdx) await applyIndex(j.index);
+      } catch(e) {}
+    }, 1000);
   });
   </script>
 </body>

@@ -88,12 +88,16 @@
     @keyframes popQ{from{opacity:0;transform:translateX(-50%) translateY(-12px)}to{opacity:1;transform:translateX(-50%)}}
     .admit-panel{position:fixed;left:.75rem;top:4rem;z-index:46;width:11rem;max-height:40vh;overflow:auto;
       background:rgba(15,23,42,.9);border:1px solid rgba(255,255,255,.12);border-radius:.75rem;padding:.5rem;font-size:11px;}
+  
+    .react-float{position:fixed;bottom:6rem;font-size:1.6rem;animation:floatUp 2.2s ease forwards;pointer-events:none;z-index:60;}
+    @keyframes floatUp{0%{opacity:1;transform:translateY(0)}100%{opacity:0;transform:translateY(-100px)}}
   </style>
 </head>
 <body>
   <div class="chrome brand-bar" id="brandBar">
     <img src="/static/img/knowsoft-logo.png" alt="Knowsoft" class="h-7" onerror="this.src='/static/icons/icon-192.png'">
     <span class="text-sm font-bold text-white hidden sm:inline">Eleon</span>
+    <span class="rounded-lg bg-black/30 text-amber-200 px-2 py-0.5 text-xs border border-white/10" id="presTimer">00:00</span>
     <span class="rounded-lg bg-black/30 text-teal-200 px-2 py-0.5 text-xs border border-white/10" id="counter">1 / {{ slides|length }}</span>
     <select id="voiceSelect" class="text-xs rounded-lg px-1 py-1 text-slate-900 max-w-[8rem]"></select>
     <select id="langSelect" class="text-xs rounded-lg px-1 py-1 text-slate-900">
@@ -109,6 +113,8 @@
     <div class="ml-auto flex flex-wrap gap-1 items-center">
       <button type="button" onclick="toggleFullscreen()" class="rounded-lg bg-indigo-600 text-white px-2 py-1 text-xs font-semibold">⛶ Fullscreen</button>
       <button type="button" id="liveBtn" onclick="startLive()" class="rounded-lg bg-emerald-700 text-white px-2 py-1 text-xs font-semibold">🔗 Join link</button>
+      <button type="button" id="endLiveBtn" onclick="endLiveSession()" class="rounded-lg bg-rose-800 text-white px-2 py-1 text-xs hidden">End live</button>
+      <button type="button" id="voiceShareBtn" onclick="toggleVoiceShare()" class="rounded-lg bg-slate-700 text-white px-2 py-1 text-xs">🎙 Voice share</button>
       <button type="button" id="autoBtn" onclick="toggleAutoplay()" class="rounded-lg bg-violet-700 text-white px-2 py-1 text-xs">▶ Auto-play</button>
       <button type="button" id="musicBtn" onclick="toggleMusic()" class="rounded-lg bg-slate-700 text-white px-2 py-1 text-xs">🎵 Music</button>
       <select id="musicTrack" class="text-xs rounded-lg px-1 py-1 text-slate-900 max-w-[8rem]" title="Calm background">
@@ -298,6 +304,7 @@
       let msg; try { msg = JSON.parse(ev.data); } catch(e) { return; }
       if (msg.type === 'online') renderOnline(msg.list);
       if (msg.type === 'question') showAudienceQuestion(msg);
+      if (msg.type === 'reaction') floatReaction(msg.emoji, msg.name);
     };
     liveWs.onclose = () => {
       setTimeout(connectHostWs, 1500);
@@ -314,6 +321,8 @@
     try { await navigator.clipboard.writeText(full); } catch(e) {}
     alert('Join link copied:\\n' + full + '\\n\\nAudience open link → you admit them. Slides & Eleon audio sync in real time.');
     connectHostWs();
+    const eb = document.getElementById('endLiveBtn');
+    if (eb) eb.classList.remove('hidden');
   }
   function syncLiveIndex(){
     if (!liveToken) return;
@@ -391,6 +400,71 @@
     if (el) el.remove();
   }
 
+
+
+  
+  /* Presentation timer */
+  const presStartedAt = Date.now();
+  setInterval(() => {
+    const el = document.getElementById('presTimer');
+    if (!el) return;
+    const s = Math.floor((Date.now() - presStartedAt) / 1000);
+    el.textContent = String(Math.floor(s/60)).padStart(2,'0') + ':' + String(s%60).padStart(2,'0');
+  }, 1000);
+
+  function floatReaction(emoji, name) {
+    const el = document.createElement('div');
+    el.className = 'react-float';
+    el.style.left = (15 + Math.random()*70) + '%';
+    el.textContent = emoji;
+    el.title = name || '';
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 2200);
+  }
+
+  async function endLiveSession() {
+    if (!liveToken) return;
+    if (liveWs && liveWs.readyState === 1) {
+      try { liveWs.send(JSON.stringify({ type: 'end' })); } catch(e) {}
+    }
+    await fetch('/presentations/'+PID+'/live/stop', { method:'POST', credentials:'same-origin' });
+    liveToken = null;
+    if (liveWs) try { liveWs.close(); } catch(e) {}
+    document.getElementById('liveBtn').textContent = '🔗 Join link';
+    document.getElementById('endLiveBtn').classList.add('hidden');
+    alert('Live session ended for all attendees.');
+  }
+
+  /* Push-to-talk / continuous voice share to audience */
+  let voiceShareOn = false, mediaRec = null, mediaStream = null;
+  async function toggleVoiceShare() {
+    const btn = document.getElementById('voiceShareBtn');
+    if (voiceShareOn) {
+      voiceShareOn = false;
+      try { mediaRec && mediaRec.stop(); } catch(e) {}
+      try { mediaStream && mediaStream.getTracks().forEach(tr => tr.stop()); } catch(e) {}
+      btn.textContent = '🎙 Voice share';
+      return;
+    }
+    if (!liveToken) { alert('Start Join link first.'); return; }
+    try {
+      mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRec = new MediaRecorder(mediaStream, { mimeType: 'audio/webm' });
+      mediaRec.ondataavailable = async (ev) => {
+        if (!ev.data || !ev.data.size || !liveWs || liveWs.readyState !== 1) return;
+        const buf = await ev.data.arrayBuffer();
+        const bytes = new Uint8Array(buf);
+        let bin = '';
+        for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+        liveWs.send(JSON.stringify({ type: 'voice_chunk', audio: btoa(bin), mime: 'audio/webm' }));
+      };
+      mediaRec.start(800); // chunks every 800ms
+      voiceShareOn = true;
+      btn.textContent = '⏹ Stop voice';
+    } catch (e) {
+      alert('Microphone permission needed to share voice.');
+    }
+  }
 
 
   function loadVoices() {
@@ -666,6 +740,7 @@
   }
   async function startClosing(){
     phase='closing_qa'; autoplay=false;
+    try { if (liveToken) endLiveSession(); } catch(e) {}
     if(autoChain) clearTimeout(autoChain);
     document.getElementById('autoBtn').textContent='▶ Auto-play';
     const ti=SLIDES.findIndex(s=>/thank you/i.test(s.title||''));
