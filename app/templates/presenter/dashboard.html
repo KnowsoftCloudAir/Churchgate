@@ -5,6 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Dashboard — Eleon</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="theme-color" content="#0f172a">
+  <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Eleon">
 </head>
 <body class="min-h-screen bg-gradient-to-b from-slate-950 to-indigo-950 text-slate-100">
   <header class="border-b border-white/10 px-4 py-3 flex flex-wrap items-center gap-3">
@@ -36,5 +42,12 @@
       {% endfor %}
     </div>
   </main>
+
+  <script>
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch(function(){});
+  }
+  </script>
+
 </body>
 </html>

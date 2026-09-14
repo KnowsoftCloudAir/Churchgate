@@ -6,6 +6,12 @@
   <title>Join — {{ presentation.title if presentation else 'Live' }}</title>
   <link rel="icon" href="/static/icons/icon-192.png">
   <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="theme-color" content="#0f172a">
+  <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Eleon">
 </head>
 <body class="min-h-screen bg-slate-950 text-white flex items-center justify-center p-6">
   <form method="post" action="/join/{{ token }}" class="w-full max-w-md rounded-3xl border border-white/10 bg-slate-900/90 p-8 space-y-4 text-center">

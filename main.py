@@ -9,7 +9,7 @@ import io
 from fastapi.responses import StreamingResponse
 
 from fastapi import FastAPI, Request, Depends, Form, UploadFile, File, HTTPException, WebSocket, WebSocketDisconnect, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlmodel import Session, select
@@ -186,6 +186,20 @@ def document_to_slide_payloads(text: str, max_slides: int = 20) -> list:
 
 
 # ---------- Public / Auth ----------
+
+@app.get("/manifest.webmanifest")
+@app.get("/manifest.json")
+async def web_manifest():
+    path = BASE / "app" / "static" / "manifest.webmanifest"
+    return FileResponse(path, media_type="application/manifest+json")
+
+
+@app.get("/sw.js")
+async def service_worker():
+    path = BASE / "app" / "static" / "sw.js"
+    return FileResponse(path, media_type="application/javascript")
+
+
 @app.get("/", response_class=HTMLResponse)
 async def splash(request: Request, session: Session = Depends(get_session)):
     user = user_from_request(request, session)
@@ -1213,11 +1227,18 @@ async def live_state(token: str, session: Session = Depends(get_session)):
 @app.get("/join/{token}", response_class=HTMLResponse)
 async def join_page(token: str, request: Request, session: Session = Depends(get_session)):
     ls = session.exec(select(LiveSession).where(LiveSession.token == token)).first()
+    dl = get_setting(session, "eleon_download_url", "https://knowsoftconsult.com")
+    android = get_setting(session, "eleon_android_url", "") or dl
+    windows = get_setting(session, "eleon_windows_url", "") or dl
     if not ls or not ls.is_active:
-        raise HTTPException(404, "Live session not available")
+        return templates.TemplateResponse("presenter/join_expired.html", {
+            "request": request, "token": token,
+            "download_url": dl, "android_url": android, "windows_url": windows,
+        })
     p = session.get(Presentation, ls.presentation_id)
     return templates.TemplateResponse("presenter/join.html", {
         "request": request, "token": token, "presentation": p, "live": ls,
+        "download_url": dl, "android_url": android, "windows_url": windows,
     })
 
 

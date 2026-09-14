@@ -11,6 +11,12 @@
     @keyframes glow { 0%,100%{box-shadow:0 0 50px rgba(20,184,166,.3);} 50%{box-shadow:0 0 80px rgba(99,102,241,.4);} }
     .splash-card { animation: rise 1s ease-out both, glow 3.5s ease-in-out infinite; }
   </style>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="theme-color" content="#0f172a">
+  <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Eleon">
 </head>
 <body class="min-h-screen bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-900 text-white flex items-center justify-center p-6">
   <div class="splash-card max-w-lg w-full rounded-3xl border border-white/10 bg-slate-900/85 backdrop-blur-xl p-10 text-center">
@@ -31,5 +37,12 @@
     </div>
     <p class="mt-6 text-[11px] text-slate-500">Demo: demo@eleon.app / demo123</p>
   </div>
+
+  <script>
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch(function(){});
+  }
+  </script>
+
 </body>
 </html>
