@@ -58,3 +58,10 @@ class Slide(SQLModel, table=True):
     bg_color: str = Field(default="#0f172a")
     accent: str = Field(default="#14b8a6")
     notes: str = Field(default="", sa_column=Column(Text))
+    layout_style: str = Field(default="title_body")  # title_body | image_left | image_right | image_bg | centered | chart
+    icon_name: str = Field(default="")
+    chart_type: str = Field(default="")  # bar | pie | line | doughnut
+    chart_data: str = Field(default="", sa_column=Column(Text))  # JSON labels/values
+    keyword_animation: bool = Field(default=True)
+    word_animation: str = Field(default="fadeUp")  # none | fadeUp | typewriter | cascade
+    online_image_url: Optional[str] = None

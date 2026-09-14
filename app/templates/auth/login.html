@@ -4,17 +4,33 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Sign in — Eleon</title>
+  <link rel="icon" href="/static/icons/icon-192.png">
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4">
   <form method="post" action="/login" class="w-full max-w-md rounded-3xl border border-white/10 bg-slate-900/90 p-8 space-y-4">
-    <a href="/" class="text-teal-300 text-sm">← Eleon</a>
-    <h1 class="text-2xl font-bold">Sign in</h1>
-    {% if error %}<p class="text-rose-400 text-sm">{{ error }}</p>{% endif %}
-    <input name="email" type="email" required placeholder="Email" class="w-full rounded-xl px-3 py-2 text-slate-900">
-    <input name="password" type="password" required placeholder="Password" class="w-full rounded-xl px-3 py-2 text-slate-900">
-    <input name="login_number" placeholder="Login number (after approval)" class="w-full rounded-xl px-3 py-2 text-slate-900">
+    <div class="flex items-center gap-3">
+      <img src="/static/icons/icon-192.png" alt="" class="h-12 w-12 rounded-xl">
+      <div>
+        <a href="/" class="text-teal-300 text-sm font-semibold">← Eleon</a>
+        <h1 class="text-2xl font-bold">Sign in</h1>
+      </div>
+    </div>
+    {% if error %}<p class="text-rose-400 text-sm rounded-lg bg-rose-950/40 border border-rose-500/30 px-3 py-2">{{ error }}</p>{% endif %}
+    <div>
+      <label class="text-xs text-slate-400">Email</label>
+      <input name="email" type="email" required value="demo@eleon.app" class="mt-1 w-full rounded-xl px-3 py-2.5 text-slate-900">
+    </div>
+    <div>
+      <label class="text-xs text-slate-400">Password</label>
+      <input name="password" type="password" required value="demo123" class="mt-1 w-full rounded-xl px-3 py-2.5 text-slate-900">
+    </div>
     <button class="w-full rounded-xl bg-teal-600 hover:bg-teal-500 py-2.5 font-bold">Enter Eleon</button>
+    <div class="rounded-xl bg-slate-800/80 border border-white/10 p-3 text-xs text-slate-300 space-y-1">
+      <p class="font-semibold text-teal-200">Demo accounts</p>
+      <p>Presenter: <code class="text-amber-200">demo@eleon.app</code> / <code class="text-amber-200">demo123</code></p>
+      <p>Admin: <code class="text-amber-200">admin@eleon.knowsoft</code> / <code class="text-amber-200">admin123</code></p>
+    </div>
     <p class="text-sm text-slate-400">No account? <a href="/register" class="text-teal-300">Register</a></p>
   </form>
 </body>

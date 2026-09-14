@@ -46,25 +46,92 @@ async def lifespan(app: FastAPI):
     create_db_and_tables()
     from sqlmodel import Session as S
     with S(engine) as session:
+        # --- Admin (always reset password so login works) ---
         admin = session.exec(select(User).where(User.email == "admin@eleon.knowsoft")).first()
         if not admin:
             admin = User(
                 email="admin@eleon.knowsoft",
                 full_name="Eleon General Admin",
-                hashed_password=hash_password("Eleon#Admin2026!"),
+                hashed_password=hash_password("admin123"),
                 role=UserRole.general_admin,
                 status=UserStatus.approved,
-                login_number="EL-00000001",
+                login_number="EL-ADMIN",
             )
             session.add(admin)
-            session.commit()
-            print("✅ Eleon Admin: admin@eleon.knowsoft / Eleon#Admin2026!")
         else:
-            print("✅ Eleon Admin ready")
+            admin.hashed_password = hash_password("admin123")
+            admin.status = UserStatus.approved
+            admin.role = UserRole.general_admin
+            session.add(admin)
+
+        # --- Demo presenter ---
+        demo = session.exec(select(User).where(User.email == "demo@eleon.app")).first()
+        if not demo:
+            demo = User(
+                email="demo@eleon.app",
+                full_name="Demo Presenter",
+                hashed_password=hash_password("demo123"),
+                role=UserRole.presenter,
+                status=UserStatus.approved,
+                login_number="EL-DEMO001",
+                access_expires_at=datetime.utcnow() + timedelta(days=365),
+            )
+            session.add(demo)
+            session.commit()
+            session.refresh(demo)
+        else:
+            demo.hashed_password = hash_password("demo123")
+            demo.status = UserStatus.approved
+            demo.access_expires_at = datetime.utcnow() + timedelta(days=365)
+            session.add(demo)
+            session.commit()
+            session.refresh(demo)
+
+        # --- Demo presentation ---
+        pres = session.exec(
+            select(Presentation).where(Presentation.owner_id == demo.id, Presentation.title == "Eleon Demo Deck")
+        ).first()
+        if not pres:
+            pres = Presentation(owner_id=demo.id, title="Eleon Demo Deck", theme="churchgate")
+            session.add(pres)
+            session.commit()
+            session.refresh(pres)
+            demo_slides = [
+                ("Welcome to Eleon", "Your presentation partner from Knowsoft.\nDesign · Present · Answer.", "Eleon helps you turn documents into attractive slides and present with voice commands."),
+                ("What Eleon can do", "• Import PDF or text into slides\n• Enhance colours and animations\n• Voice: next, previous, go to slide\n• Q&A from your content", "Document import, enhance panel, PDF export, share link, and Eleon probe."),
+                ("Demo talking points", "Revenue grew 24% year on year.\nThree regions: Lagos, Abuja, Port Harcourt.\nNext goal: expand training workshops.", "Sample figures for Q&A: growth 24%, cities Lagos Abuja Port Harcourt, focus on workshops."),  # chart filled below
+                ("Thank you", "Thank you for your attention.\nAny questions?", "Closing slide. Eleon waits one minute for questions then goes off."),
+            ]
+            for i, (title, body, extra) in enumerate(demo_slides):
+                session.add(Slide(
+                    presentation_id=pres.id, position=i, title=title, body=body, extra_data=extra,
+                    animation_in=["float3d", "cube", "bounceIn", "zoom"][i % 4],
+                    accent="#14b8a6", bg_color="#0f172a",
+                    layout_style="centered" if i == 0 else ("chart" if i == 2 else "title_body"),
+                    icon_name=["rocket", "star", "growth", "check"][i % 4],
+                    chart_type="doughnut" if i == 2 else "",
+                    chart_data="Lagos:40,Abuja:30,PH:20,Others:10" if i == 2 else "",
+                    word_animation="cascade",
+                    keyword_animation=True,
+                    online_image_url="https://picsum.photos/seed/eleon" + str(i) + "/900/500" if i == 1 else None,
+                ))
+            session.commit()
+        session.commit()
+        print("✅ Admin: admin@eleon.knowsoft / admin123")
+        print("✅ Demo:  demo@eleon.app / demo123  (login number EL-DEMO001 optional)")
     yield
 
 
 app = FastAPI(title="Eleon", lifespan=lifespan)
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    if exc.status_code in (401, 303) and "text/html" in (request.headers.get("accept") or ""):
+        if exc.status_code == 401 or (exc.headers and exc.headers.get("Location") == "/login"):
+            return RedirectResponse("/login", status_code=303)
+    from fastapi.responses import JSONResponse as _JC
+    return _JC({"detail": exc.detail}, status_code=exc.status_code)
+
 app.mount("/static", StaticFiles(directory=str(BASE / "app" / "static")), name="static")
 
 
@@ -134,31 +201,31 @@ async def login_post(
     request: Request,
     email: str = Form(...),
     password: str = Form(...),
-    login_number: str = Form(""),
     session: Session = Depends(get_session),
 ):
-    user = session.exec(select(User).where(User.email == email.strip().lower())).first()
+    email_n = (email or "").strip().lower()
+    user = session.exec(select(User).where(User.email == email_n)).first()
     if not user or not verify_password(password, user.hashed_password):
         return templates.TemplateResponse("auth/login.html", {
-            "request": request, "error": "Invalid email or password",
+            "request": request, "error": "Invalid email or password. Try demo@eleon.app / demo123",
         }, status_code=400)
     if user.role != UserRole.general_admin:
+        if user.status == UserStatus.suspended:
+            return templates.TemplateResponse("auth/login.html", {
+                "request": request, "error": "Account suspended",
+            }, status_code=403)
         if user.status != UserStatus.approved:
             return templates.TemplateResponse("auth/login.html", {
-                "request": request, "error": "Account pending admin approval",
-            }, status_code=403)
-        if login_number.strip() and user.login_number and login_number.strip() != user.login_number:
-            return templates.TemplateResponse("auth/login.html", {
-                "request": request, "error": "Invalid login number",
+                "request": request, "error": "Account pending approval",
             }, status_code=403)
         if user.access_expires_at and user.access_expires_at < datetime.utcnow():
             return templates.TemplateResponse("auth/login.html", {
-                "request": request, "error": "Access expired — request a new code from admin",
+                "request": request, "error": "Access expired — ask admin for a new code",
             }, status_code=403)
     token = create_token(user.id)
     dest = "/admin" if user.role == UserRole.general_admin else "/dashboard"
     resp = RedirectResponse(dest, status_code=303)
-    resp.set_cookie("eleon_token", token, httponly=True, max_age=7 * 86400, samesite="lax")
+    resp.set_cookie("eleon_token", token, httponly=True, max_age=14 * 86400, samesite="lax", path="/")
     return resp
 
 
@@ -305,6 +372,13 @@ async def update_slide(
     bg_color: str = Form("#0f172a"),
     accent: str = Form("#14b8a6"),
     notes: str = Form(""),
+    layout_style: str = Form("title_body"),
+    icon_name: str = Form(""),
+    chart_type: str = Form(""),
+    chart_data: str = Form(""),
+    keyword_animation: str = Form("on"),
+    word_animation: str = Form("fadeUp"),
+    online_image_url: str = Form(""),
     user: User = Depends(require_user),
     session: Session = Depends(get_session),
 ):
@@ -320,11 +394,40 @@ async def update_slide(
     s.bg_color = bg_color
     s.accent = accent
     s.notes = notes
+    s.layout_style = layout_style or "title_body"
+    s.icon_name = icon_name or ""
+    s.chart_type = chart_type or ""
+    s.chart_data = chart_data or ""
+    s.keyword_animation = (keyword_animation == "on")
+    s.word_animation = word_animation or "fadeUp"
+    s.online_image_url = (online_image_url or "").strip() or None
     p.updated_at = datetime.utcnow()
     session.add(s)
     session.add(p)
     session.commit()
     return RedirectResponse(f"/presentations/{pid}/edit?sid={sid}", status_code=303)
+
+
+@app.get("/presentations/{pid}/notes.txt")
+async def generate_notes(pid: int, user: User = Depends(require_user), session: Session = Depends(get_session)):
+    p = session.get(Presentation, pid)
+    if not p or p.owner_id != user.id:
+        raise HTTPException(404)
+    slides = session.exec(select(Slide).where(Slide.presentation_id == pid).order_by(Slide.position)).all()
+    lines = [f"PRESENTATION NOTES — {p.title}", f"Generated by Eleon (Knowsoft)", ""]
+    for i, s in enumerate(slides, 1):
+        lines.append(f"=== SLIDE {i}: {s.title} ===")
+        lines.append(s.body or "")
+        if s.extra_data:
+            lines.append("--- Eleon data ---")
+            lines.append(s.extra_data)
+        if s.notes:
+            lines.append("--- Presenter notes ---")
+            lines.append(s.notes)
+        lines.append("")
+    text = "\n".join(lines)
+    return StreamingResponse(io.BytesIO(text.encode("utf-8")), media_type="text/plain",
+                             headers={"Content-Disposition": f'attachment; filename="eleon_notes_{pid}.txt"'})
 
 
 @app.post("/presentations/{pid}/slides/{sid}/image")
@@ -457,6 +560,12 @@ async def eleon_ask(
         return JSONResponse({"ok": True, "action": "prev", "speak": "Going to the previous slide."})
     if ql in ("stay", "stay here", "current", "this slide"):
         return JSONResponse({"ok": True, "action": "stay", "speak": "Staying on this slide."})
+    if ql in ("read", "read slide", "read the slide", "read this", "read this slide", "read everything", "what does this say"):
+        return JSONResponse({"ok": True, "action": "read", "speak": ""})
+    if ql in ("read all", "summarize", "summary", "overview"):
+        return JSONResponse({"ok": True, "action": "read_all", "speak": ""})
+    if "be attentive" in ql or ql in ("listen", "listen up", "pay attention"):
+        return JSONResponse({"ok": True, "action": "listen", "speak": "I am attentive and listening."})
     if "thank you" in ql and "attention" in ql:
         return JSONResponse({"ok": True, "action": "closing", "speak": "Thank you for your attention. Any questions?"})
     if ql in ("end", "end presentation", "finish", "close presentation", "conclude"):

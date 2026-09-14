@@ -4,77 +4,122 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Present — {{ presentation.title }} — Eleon</title>
+  <link rel="icon" href="/static/icons/icon-192.png">
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <style>
-    html,body{height:100%;margin:0;overflow:hidden;background:#020617;}
-    .slide-stage{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:2.5rem 12rem 7rem 2rem;}
-    @media(max-width:900px){.slide-stage{padding:1rem 1rem 8rem;}}
-    .slide-card{max-width:920px;width:100%;border-radius:1.5rem;padding:2.25rem;transition:all .55s cubic-bezier(.22,1,.36,1);}
-    .anim-fade{animation:fadeIn .55s ease;}
-    .anim-slideLeft{animation:slideLeft .55s ease;}
-    .anim-slideUp{animation:slideUp .55s ease;}
-    .anim-zoom{animation:zoomIn .55s ease;}
-    .anim-flip{animation:flipIn .6s ease;}
+    html,body{height:100%;margin:0;overflow:hidden;background:#020617;font-family:Inter,system-ui,sans-serif;}
+    .fs body,.fullscreen-mode{cursor:none;}
+    .slide-stage{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:4.5rem 11rem 7.5rem 2rem;perspective:1200px;}
+    @media(max-width:900px){.slide-stage{padding:4.5rem 1rem 8.5rem;}}
+    .slide-card{max-width:1000px;width:100%;border-radius:1.5rem;padding:2.25rem;transform-style:preserve-3d;box-shadow:0 25px 80px rgba(0,0,0,.45);}
+    /* Entrance animations */
+    .anim-fade{animation:fadeIn .7s ease;}
+    .anim-slideLeft{animation:slideLeft .7s cubic-bezier(.22,1,.36,1);}
+    .anim-slideUp{animation:slideUp .7s cubic-bezier(.22,1,.36,1);}
+    .anim-zoom{animation:zoomIn .7s cubic-bezier(.22,1,.36,1);}
+    .anim-flip{animation:flipIn .85s cubic-bezier(.22,1,.36,1);}
+    .anim-cube{animation:cubeIn .9s cubic-bezier(.22,1,.36,1);}
+    .anim-float3d{animation:float3d .9s cubic-bezier(.22,1,.36,1);}
+    .anim-rotateIn{animation:rotateIn .8s ease;}
+    .anim-bounceIn{animation:bounceIn .85s cubic-bezier(.34,1.56,.64,1);}
     @keyframes fadeIn{from{opacity:0}to{opacity:1}}
-    @keyframes slideLeft{from{opacity:0;transform:translateX(48px)}to{opacity:1;transform:none}}
-    @keyframes slideUp{from{opacity:0;transform:translateY(40px)}to{opacity:1;transform:none}}
-    @keyframes zoomIn{from{opacity:0;transform:scale(.92)}to{opacity:1;transform:none}}
-    @keyframes flipIn{from{opacity:0;transform:rotateY(25deg)}to{opacity:1;transform:none}}
-    .side-enh{position:fixed;top:50%;right:.75rem;transform:translateY(-50%);z-index:40;width:9.5rem;display:flex;flex-direction:column;gap:.35rem;}
-    .side-enh button{font-size:11px;text-align:left;padding:.45rem .55rem;border-radius:.65rem;background:rgba(15,23,42,.85);border:1px solid rgba(255,255,255,.12);color:#e2e8f0;}
-    .side-enh button:hover{background:rgba(20,184,166,.25);border-color:rgba(45,212,191,.5);}
-    .probe{position:fixed;bottom:.75rem;left:50%;transform:translateX(-50%);z-index:50;width:min(580px,94vw);}
-    .probe-dot{width:10px;height:10px;border-radius:999px;background:#2dd4bf;box-shadow:0 0 12px #2dd4bf;animation:pulse 1.2s infinite;}
+    @keyframes slideLeft{from{opacity:0;transform:translateX(80px) rotateY(-12deg)}to{opacity:1;transform:none}}
+    @keyframes slideUp{from{opacity:0;transform:translateY(60px) scale(.96)}to{opacity:1;transform:none}}
+    @keyframes zoomIn{from{opacity:0;transform:scale(.82) translateZ(-80px)}to{opacity:1;transform:none}}
+    @keyframes flipIn{from{opacity:0;transform:rotateY(55deg)}to{opacity:1;transform:none}}
+    @keyframes cubeIn{from{opacity:0;transform:rotateX(55deg) translateY(40px)}to{opacity:1;transform:none}}
+    @keyframes float3d{from{opacity:0;transform:translateZ(-120px) rotateX(18deg)}to{opacity:1;transform:none}}
+    @keyframes rotateIn{from{opacity:0;transform:rotate(-8deg) scale(.9)}to{opacity:1;transform:none}}
+    @keyframes bounceIn{0%{opacity:0;transform:scale(.6)}60%{transform:scale(1.05)}100%{opacity:1;transform:scale(1)}}
+    .word{display:inline-block;opacity:0;animation:wordIn .45s forwards;}
+    .word.wa-fadeUp{animation-name:wordFadeUp;}
+    .word.wa-typewriter{animation-name:wordType;white-space:pre;}
+    .word.wa-cascade{animation-name:wordCascade;}
+    @keyframes wordFadeUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+    @keyframes wordType{from{opacity:0}to{opacity:1}}
+    @keyframes wordCascade{from{opacity:0;transform:rotateX(60deg)}to{opacity:1;transform:none}}
+    .kw-hit{background:linear-gradient(90deg,#fbbf24,#34d399);-webkit-background-clip:text;color:transparent;font-weight:800;
+      animation:kwPulse .6s ease;}
+    @keyframes kwPulse{0%{filter:brightness(1.8)}100%{filter:brightness(1)}}
+    .side-enh{position:fixed;top:50%;right:.6rem;transform:translateY(-50%);z-index:40;width:9.8rem;display:flex;flex-direction:column;gap:.3rem;max-height:70vh;overflow:auto;}
+    .side-enh button{font-size:10px;text-align:left;padding:.4rem .5rem;border-radius:.6rem;background:rgba(15,23,42,.88);border:1px solid rgba(255,255,255,.12);color:#e2e8f0;}
+    .side-enh button:hover{background:rgba(20,184,166,.28);}
+    .probe{position:fixed;bottom:.6rem;left:50%;transform:translateX(-50%);z-index:50;width:min(640px,96vw);}
+    .probe-dot{width:11px;height:11px;border-radius:999px;background:#2dd4bf;box-shadow:0 0 14px #2dd4bf;animation:pulse 1.1s infinite;}
     .probe-dot.off{background:#64748b;box-shadow:none;animation:none;}
+    .probe-dot.listening{background:#fbbf24;box-shadow:0 0 16px #fbbf24;}
     @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+    .brand-bar{position:fixed;top:0;left:0;right:0;z-index:45;display:flex;align-items:center;gap:.55rem;padding:.5rem .85rem;background:linear-gradient(90deg,rgba(15,23,42,.95),rgba(30,27,75,.8));border-bottom:1px solid rgba(255,255,255,.08);}
+    .hide-ui .brand-bar,.hide-ui .side-enh,.hide-ui .probe{opacity:0;pointer-events:none;transition:opacity .4s;}
+    .icon-pop{font-size:3rem;filter:drop-shadow(0 8px 20px rgba(0,0,0,.35));animation:bounceIn .8s ease;}
+    .layout-split{display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;align-items:center;}
+    @media(max-width:700px){.layout-split{grid-template-columns:1fr;}}
+    .img-frame{border-radius:1.25rem;overflow:hidden;border:1px solid rgba(255,255,255,.15);box-shadow:0 20px 50px rgba(0,0,0,.35);transform:rotateY(-6deg);transition:transform .5s;}
+    .img-frame:hover{transform:none;}
+    .bg-photo{background-size:cover;background-position:center;}
   </style>
 </head>
 <body>
-  <div class="fixed top-3 left-3 z-40 flex gap-2 text-xs items-center">
-    {% if not shared %}
-    <a href="/presentations/{{ presentation.id }}/edit" class="rounded-lg bg-black/40 text-white/80 px-2 py-1 border border-white/10">Exit</a>
-    {% else %}
-    <a href="/" class="rounded-lg bg-black/40 text-white/80 px-2 py-1 border border-white/10">Eleon</a>
-    {% endif %}
-    <span class="rounded-lg bg-black/40 text-teal-200 px-2 py-1 border border-white/10" id="counter">1 / {{ slides|length }}</span>
-    <button type="button" id="micBtn" onclick="toggleListen()" class="rounded-lg bg-teal-700/80 text-white px-2 py-1 border border-teal-400/40">🎤 Voice</button>
-  </div>
-  <div class="fixed top-3 right-3 z-40 flex gap-1">
-    <button type="button" onclick="go(-1)" class="rounded-lg bg-white/10 text-white px-3 py-1 text-sm">Prev</button>
-    <button type="button" onclick="go(1)" class="rounded-lg bg-teal-600 text-white px-3 py-1 text-sm font-semibold">Next</button>
-    <button type="button" onclick="startClosing()" class="rounded-lg bg-indigo-600 text-white px-3 py-1 text-sm">End + Q&A</button>
+  <div class="brand-bar" id="brandBar">
+    <img src="/static/img/knowsoft-logo.png" alt="Knowsoft" class="h-7 w-auto object-contain" onerror="this.src='/static/icons/icon-192.png'">
+    <div class="leading-tight hidden sm:block">
+      <p class="text-[9px] uppercase tracking-[0.2em] text-teal-300/90">Knowsoft</p>
+      <p class="text-sm font-bold text-white">Eleon</p>
+    </div>
+    <span class="rounded-lg bg-black/30 text-teal-200 px-2 py-0.5 text-xs border border-white/10" id="counter">1 / {{ slides|length }}</span>
+    <div class="ml-auto flex flex-wrap gap-1 items-center justify-end">
+      <button type="button" onclick="toggleFullscreen()" class="rounded-lg bg-indigo-600 text-white px-2 py-1 text-xs font-semibold">⛶ Fullscreen</button>
+      <button type="button" id="autoBtn" onclick="toggleAutoplay()" class="rounded-lg bg-violet-700 text-white px-2 py-1 text-xs">▶ Auto-play</button>
+      <button type="button" onclick="startRecording()" class="rounded-lg bg-rose-700 text-white px-2 py-1 text-xs">⏺ Video</button>
+      <button type="button" id="micBtn" onclick="toggleListen()" class="rounded-lg bg-teal-700 text-white px-2 py-1 text-xs font-semibold">🎤 Listen</button>
+      <button type="button" onclick="readCurrent()" class="rounded-lg bg-white/10 text-white px-2 py-1 text-xs">Read</button>
+      <button type="button" onclick="go(-1)" class="rounded-lg bg-white/10 text-white px-2 py-1 text-xs">Prev</button>
+      <button type="button" onclick="go(1)" class="rounded-lg bg-teal-600 text-white px-2 py-1 text-xs font-semibold">Next</button>
+      <button type="button" onclick="startClosing()" class="rounded-lg bg-slate-700 text-white px-2 py-1 text-xs">End</button>
+      {% if not shared %}
+      <a href="/presentations/{{ presentation.id }}/edit" class="rounded-lg bg-black/40 text-white/80 px-2 py-1 text-xs border border-white/10">Exit</a>
+      {% endif %}
+    </div>
   </div>
 
   <div class="side-enh" id="sideEnh">
-    <p class="text-[10px] uppercase tracking-wide text-teal-300/90 px-1 mb-1">Enhance</p>
+    <p class="text-[10px] uppercase tracking-wide text-teal-300/90 px-1">Enhance</p>
     <button type="button" onclick="enhance('accent_teal')">Teal accent</button>
     <button type="button" onclick="enhance('accent_gold')">Gold accent</button>
     <button type="button" onclick="enhance('bg_indigo')">Indigo bg</button>
-    <button type="button" onclick="enhance('anim_zoom')">Zoom in</button>
-    <button type="button" onclick="enhance('anim_slide')">Slide in</button>
-    <button type="button" onclick="enhance('anim_fade')">Fade</button>
-    <button type="button" onclick="enhance('anim_flip')">Flip</button>
+    <button type="button" onclick="setAnim('float3d')">3D float in</button>
+    <button type="button" onclick="setAnim('cube')">3D cube in</button>
+    <button type="button" onclick="setAnim('bounceIn')">Bounce in</button>
+    <button type="button" onclick="setAnim('zoom')">Zoom in</button>
+    <button type="button" onclick="setAnim('flip')">Flip in</button>
+    <button type="button" onclick="setWordAnim('cascade')">Word cascade</button>
+    <button type="button" onclick="setWordAnim('fadeUp')">Word fade-up</button>
+    <button type="button" onclick="setWordAnim('typewriter')">Typewriter</button>
+    <button type="button" onclick="toggleKw()">Keyword anim</button>
   </div>
 
   <div id="stage" class="slide-stage"></div>
 
-  <div class="probe">
-    <div class="rounded-2xl border border-white/15 bg-slate-900/90 backdrop-blur px-4 py-3 shadow-2xl">
+  <div class="probe" id="probe">
+    <div class="rounded-2xl border border-white/15 bg-slate-900/92 backdrop-blur px-4 py-3 shadow-2xl">
       <div class="flex items-center gap-2 mb-2">
+        <img src="/static/icons/icon-192.png" class="h-7 w-7 rounded-lg" alt="Knowsoft">
         <span class="probe-dot" id="probeDot"></span>
-        <span class="text-teal-300 text-sm font-bold tracking-wide">ELEON</span>
-        <span class="text-xs text-slate-400" id="probeStatus">say "Eleon" or type a command</span>
+        <span class="text-teal-300 text-sm font-bold">ELEON</span>
+        <span class="text-xs text-slate-400" id="probeStatus">attentive</span>
       </div>
       <div class="flex gap-2">
-        <input id="cmd" type="text" placeholder='next · previous · go to slide 2 · end · or ask about the content'
+        <input id="cmd" type="text" placeholder='“read”, “next”, “auto play”, “fullscreen”, or ask a question'
                class="flex-1 rounded-xl px-3 py-2 text-slate-900 text-sm" autocomplete="off">
         <button type="button" onclick="askEleon()" class="rounded-xl bg-teal-600 px-3 py-2 text-sm font-bold text-white">Ask</button>
       </div>
-      <p class="text-xs text-slate-300 mt-2 min-h-[1.25rem]" id="eleonReply"></p>
+      <p class="text-xs text-slate-300 mt-2 min-h-[1.1rem]" id="eleonReply"></p>
     </div>
   </div>
 
   <script>
+  const ICONS = {rocket:'🚀',chart:'📊',target:'🎯',star:'⭐',globe:'🌍',idea:'💡',team:'👥',growth:'📈',shield:'🛡️',heart:'💚',book:'📘',check:'✅'};
   const SLIDES = [
     {% for s in slides %}
     {
@@ -82,207 +127,263 @@
       title: {{ (s.title or '')|tojson }},
       body: {{ (s.body or '')|tojson }},
       extra: {{ (s.extra_data or '')|tojson }},
+      notes: {{ (s.notes or '')|tojson }},
       image: {{ (s.image_path or '')|tojson }},
-      animIn: {{ (s.animation_in or 'fade')|tojson }},
+      onlineImage: {{ (s.online_image_url or '')|tojson }},
+      animIn: {{ (s.animation_in or 'float3d')|tojson }},
       animOut: {{ (s.animation_out or 'fade')|tojson }},
       bg: {{ (s.bg_color or '#0f172a')|tojson }},
-      accent: {{ (s.accent or '#14b8a6')|tojson }}
+      accent: {{ (s.accent or '#14b8a6')|tojson }},
+      layout: {{ (s.layout_style or 'title_body')|tojson }},
+      icon: {{ (s.icon_name or '')|tojson }},
+      chartType: {{ (s.chart_type or '')|tojson }},
+      chartData: {{ (s.chart_data or '')|tojson }},
+      keywordAnim: {{ 'true' if s.keyword_animation else 'false' }},
+      wordAnim: {{ (s.word_animation or 'fadeUp')|tojson }}
     }{% if not loop.last %},{% endif %}
     {% endfor %}
   ];
   const PID = {{ presentation.id }};
   const SHARED = {{ 'true' if shared else 'false' }};
-  let idx = 0;
-  let phase = 'present'; // present | closing_qa
-  let eleonOn = true;
-  let qaTimer = null;
-  let recognizing = false;
-  let recognition = null;
+  let idx = 0, phase = 'present', eleonOn = true, qaTimer = null;
+  let recognizing = false, recognition = null, autoplay = false, autoTimer = null;
+  let keywordAnimOn = true, mediaRecorder = null, recordedChunks = [];
+  let chartInst = null;
 
-  function render() {
-    const s = SLIDES[idx] || { title: 'Empty', body: '', bg: '#0f172a', accent: '#14b8a6', animIn: 'fade' };
-    const stage = document.getElementById('stage');
-    stage.style.background = `radial-gradient(ellipse at 30% 20%, ${s.accent}33, transparent 50%), ${s.bg}`;
-    const anim = 'anim-' + (s.animIn || 'fade');
-    stage.innerHTML = `
-      <div class="slide-card ${anim} border shadow-2xl text-white" style="background:linear-gradient(145deg,rgba(15,23,42,.92),rgba(15,23,42,.75));border-color:${s.accent}55">
-        <p class="text-xs uppercase tracking-widest mb-2" style="color:${s.accent}">Eleon · Slide ${idx+1}</p>
-        <h1 class="text-3xl sm:text-5xl font-black leading-tight mb-4">${escapeHtml(s.title)}</h1>
-        <div class="text-base sm:text-lg text-slate-200 whitespace-pre-wrap leading-relaxed">${escapeHtml(s.body)}</div>
-        ${s.image ? `<img src="${s.image}" class="mt-6 max-h-52 rounded-xl mx-auto shadow-lg border border-white/10" alt="">` : ''}
-      </div>`;
-    document.getElementById('counter').textContent = `${idx+1} / ${SLIDES.length || 1}`;
+  function imgUrl(s){ return s.onlineImage || s.image || ''; }
+  function fullSlideText(s){ return [s.title,s.body,s.extra,s.notes].filter(Boolean).join('. ').replace(/\s+/g,' ').trim(); }
+  function escapeHtml(t){ return (t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function wordSpanHtml(text, wa) {
+    if (!text || wa === 'none') return escapeHtml(text||'');
+    return (text||'').split(/(\s+)/).map((w,i) => {
+      if (/^\s+$/.test(w)) return w;
+      return `<span class="word wa-${wa}" style="animation-delay:${Math.min(i*0.04,2.5)}s">${escapeHtml(w)}</span>`;
+    }).join('');
   }
-  function escapeHtml(t) {
-    return (t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  }
-  function go(d) {
-    if (phase === 'closing_qa') return;
-    if (!SLIDES.length) return;
-    idx = Math.max(0, Math.min(SLIDES.length - 1, idx + d));
-    render();
-  }
-  function gotoSlide(i) {
-    if (phase === 'closing_qa') return;
-    if (i < 0 || i >= SLIDES.length) return;
-    idx = i;
-    render();
-  }
-  function speak(text, onend) {
-    document.getElementById('eleonReply').textContent = text || '';
-    if (!('speechSynthesis' in window) || !text) { if (onend) onend(); return; }
-    window.speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(text);
-    u.rate = 1;
-    if (onend) u.onend = onend;
-    window.speechSynthesis.speak(u);
-  }
-  function goOff() {
-    eleonOn = false;
-    document.getElementById('probeDot').classList.add('off');
-    document.getElementById('probeStatus').textContent = 'Eleon is off';
-    stopListen();
-    if (qaTimer) { clearTimeout(qaTimer); qaTimer = null; }
-  }
-  function startClosing() {
-    phase = 'closing_qa';
-    // jump to thank-you slide if present
-    const ti = SLIDES.findIndex(s => /thank you/i.test(s.title || ''));
-    if (ti >= 0) { idx = ti; render(); }
-    speak('Thank you for your attention. Any questions?', () => {
-      document.getElementById('probeStatus').textContent = 'Q&A — waiting 1 minute…';
-      if (qaTimer) clearTimeout(qaTimer);
-      qaTimer = setTimeout(() => {
-        speak('No further questions. Goodbye.', () => goOff());
-      }, 60000);
-    });
-  }
-  async function enhance(action) {
-    if (SHARED) { speak('Enhancements need the presenter account.'); return; }
-    const s = SLIDES[idx];
-    if (!s || !s.id) return;
-    const r = await fetch('/api/slides/' + s.id + '/enhance', {
-      method: 'POST', credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action })
-    });
-    const j = await r.json();
-    if (j.ok && j.slide) {
-      s.accent = j.slide.accent; s.bg = j.slide.bg_color;
-      s.animIn = j.slide.animation_in; s.animOut = j.slide.animation_out;
-      s.body = j.slide.body; s.extra = j.slide.extra_data;
-      render();
-      speak('Slide enhanced.');
-    }
-  }
-  async function askEleon(qOverride) {
-    if (!eleonOn && phase !== 'closing_qa') {
-      document.getElementById('probeStatus').textContent = 'Eleon is off';
-      return;
-    }
-    const q = (qOverride || document.getElementById('cmd').value).trim();
-    if (!q) return;
-    // wake word
-    let question = q;
-    const low = q.toLowerCase();
-    if (low === 'eleon' || low === 'eleon!' ) {
-      speak('Eleon is on and waiting.');
-      document.getElementById('cmd').value = '';
-      return;
-    }
-    if (low.startsWith('eleon ')) question = q.slice(6).trim();
-    if (low.includes('turn off')) { speak('Eleon turning off.', () => goOff()); return; }
-
-    document.getElementById('probeStatus').textContent = 'thinking…';
+  function parseChart(s) {
     try {
-      const r = await fetch('/api/eleon/ask', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'same-origin',
-        body: JSON.stringify({ question, presentation_id: PID, slide_index: idx, phase })
-      });
-      const j = await r.json();
-      if (j.action === 'next') go(1);
-      else if (j.action === 'prev') go(-1);
-      else if (j.action === 'goto' && typeof j.index === 'number') gotoSlide(j.index);
-      else if (j.action === 'closing') startClosing();
-      else if (j.action === 'enhance' && j.enhance) await enhance(j.enhance);
-      else if (j.action === 'set_anim_in' && SLIDES[idx]) { await enhancePersistAnim('set_anim_in', j.value); }
-      else if (j.action === 'set_anim_out' && SLIDES[idx]) { await enhancePersistAnim('set_anim_out', j.value); }
-
-      speak(j.speak || '', () => {
-        if (j.go_off) goOff();
-        if (phase === 'closing_qa' && j.action === 'speak' && !j.go_off) {
-          // reset 1-minute window after an answered question
-          if (qaTimer) clearTimeout(qaTimer);
-          qaTimer = setTimeout(() => {
-            speak('No further questions. Goodbye.', () => goOff());
-          }, 60000);
-          document.getElementById('probeStatus').textContent = 'Q&A — waiting 1 minute…';
+      const j = JSON.parse(s.chartData || '{}');
+      if (j.labels && j.values) return j;
+    } catch(e) {}
+    // "A:10,B:20"
+    const labels=[], values=[];
+    (s.chartData||'').split(',').forEach(p => {
+      const [a,b] = p.split(':');
+      if (a && b) { labels.push(a.trim()); values.push(Number(b)); }
+    });
+    return labels.length ? {labels, values} : null;
+  }
+  function render() {
+    const s = SLIDES[idx] || {title:'Empty',body:'',bg:'#0f172a',accent:'#14b8a6',animIn:'fade',layout:'title_body',wordAnim:'fadeUp'};
+    keywordAnimOn = s.keywordAnim !== false;
+    const stage = document.getElementById('stage');
+    const photo = imgUrl(s);
+    if (s.layout === 'image_bg' && photo) {
+      stage.className = 'slide-stage bg-photo';
+      stage.style.backgroundImage = `linear-gradient(rgba(2,6,23,.72),rgba(2,6,23,.82)),url('${photo}')`;
+      stage.style.backgroundColor = s.bg;
+    } else {
+      stage.className = 'slide-stage';
+      stage.style.backgroundImage = '';
+      stage.style.background = `radial-gradient(ellipse at 25% 15%, ${s.accent}40, transparent 45%), ${s.bg}`;
+    }
+    const anim = 'anim-' + (s.animIn || 'float3d');
+    const iconHtml = s.icon && ICONS[s.icon] ? `<div class="icon-pop mb-3">${ICONS[s.icon]}</div>` : (s.icon ? `<div class="icon-pop mb-3">${escapeHtml(s.icon)}</div>` : '');
+    const titleHtml = wordSpanHtml(s.title, s.wordAnim || 'fadeUp');
+    const bodyHtml = wordSpanHtml(s.body, s.wordAnim || 'fadeUp');
+    const chartBox = (s.chartType && parseChart(s)) ? `<div class="mt-4 h-52"><canvas id="slideChart"></canvas></div>` : '';
+    let inner = '';
+    if (s.layout === 'image_left' && photo) {
+      inner = `<div class="layout-split"><div class="img-frame"><img src="${photo}" class="w-full h-full object-cover max-h-72" alt=""></div><div>${iconHtml}<h1 class="text-3xl sm:text-4xl font-black mb-3">${titleHtml}</h1><div class="text-slate-200 text-lg leading-relaxed">${bodyHtml}</div>${chartBox}</div></div>`;
+    } else if (s.layout === 'image_right' && photo) {
+      inner = `<div class="layout-split"><div>${iconHtml}<h1 class="text-3xl sm:text-4xl font-black mb-3">${titleHtml}</h1><div class="text-slate-200 text-lg leading-relaxed">${bodyHtml}</div>${chartBox}</div><div class="img-frame"><img src="${photo}" class="w-full max-h-72 object-cover" alt=""></div></div>`;
+    } else if (s.layout === 'centered') {
+      inner = `<div class="text-center">${iconHtml}<h1 class="text-4xl sm:text-5xl font-black mb-4">${titleHtml}</h1><div class="text-slate-200 text-lg max-w-2xl mx-auto leading-relaxed">${bodyHtml}</div>${chartBox}${photo?`<img src="${photo}" class="mt-5 max-h-48 mx-auto rounded-xl">`:''}</div>`;
+    } else {
+      inner = `${iconHtml}<h1 class="text-3xl sm:text-5xl font-black leading-tight mb-4">${titleHtml}</h1><div class="text-base sm:text-lg text-slate-200 whitespace-pre-wrap leading-relaxed">${bodyHtml}</div>${chartBox}${photo && s.layout!=='image_bg'?`<img src="${photo}" class="mt-5 max-h-48 rounded-xl shadow-lg border border-white/10">`:''}`;
+    }
+    stage.innerHTML = `<div class="slide-card ${anim} border text-white" style="background:linear-gradient(145deg,rgba(15,23,42,.9),rgba(15,23,42,.72));border-color:${s.accent}55">
+      <div class="flex items-center gap-2 mb-2 opacity-90"><img src="/static/icons/icon-192.png" class="h-5 w-5 rounded"><span class="text-[10px] uppercase tracking-widest" style="color:${s.accent}">Knowsoft Eleon · ${idx+1}/${SLIDES.length}</span></div>
+      ${inner}
+    </div>`;
+    document.getElementById('counter').textContent = `${idx+1} / ${SLIDES.length||1}`;
+    // chart
+    if (chartInst) { try{chartInst.destroy()}catch(e){} chartInst=null; }
+    const cd = parseChart(s);
+    if (s.chartType && cd && document.getElementById('slideChart')) {
+      chartInst = new Chart(document.getElementById('slideChart'), {
+        type: s.chartType || 'bar',
+        data: { labels: cd.labels, datasets: [{ label: s.title, data: cd.values,
+          backgroundColor: ['#14b8a6','#6366f1','#f59e0b','#f43f5e','#8b5cf6','#22d3ee'],
+          borderWidth: 0, hoverOffset: 12 }] },
+        options: { responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { labels: { color: '#e2e8f0' } } },
+          scales: s.chartType==='pie'||s.chartType==='doughnut' ? {} : {
+            x: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(255,255,255,.06)' } },
+            y: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(255,255,255,.06)' } }
+          },
+          animation: { duration: 1200, easing: 'easeOutQuart' }
         }
       });
-    } catch (e) {
-      speak('Eleon could not reach the server.');
-    }
-    if (phase === 'present') document.getElementById('probeStatus').textContent = 'ready';
-    document.getElementById('cmd').value = '';
-  }
-  async function enhancePersistAnim(action, value) {
-    if (SHARED) return;
-    const s = SLIDES[idx];
-    if (!s || !s.id) return;
-    const r = await fetch('/api/slides/' + s.id + '/enhance', {
-      method: 'POST', credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action, value })
-    });
-    const j = await r.json();
-    if (j.ok && j.slide) {
-      s.animIn = j.slide.animation_in; s.animOut = j.slide.animation_out;
-      render();
     }
   }
-  function toggleListen() {
-    if (recognizing) { stopListen(); return; }
-    startListen();
-  }
-  function startListen() {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) { speak('Voice recognition is not supported in this browser.'); return; }
-    recognition = new SR();
-    recognition.lang = 'en-US';
-    recognition.continuous = true;
-    recognition.interimResults = false;
-    recognition.onresult = (ev) => {
-      const text = ev.results[ev.results.length - 1][0].transcript.trim();
-      document.getElementById('cmd').value = text;
-      document.getElementById('probeStatus').textContent = 'heard: ' + text;
-      askEleon(text);
+  function go(d){ if(phase==='closing_qa')return; idx=Math.max(0,Math.min(SLIDES.length-1,idx+d)); render(); if(eleonOn) readCurrent(true); }
+  function gotoSlide(i){ if(phase==='closing_qa')return; if(i<0||i>=SLIDES.length)return; idx=i; render(); if(eleonOn) readCurrent(true); }
+  function speak(text, onend) {
+    document.getElementById('eleonReply').textContent = text || '';
+    if (!('speechSynthesis' in window) || !text) { if(onend) onend(); return; }
+    window.speechSynthesis.cancel();
+    const words = text.split(/\s+/);
+    const chunks=[]; let buf=[];
+    words.forEach(w => { buf.push(w); if(buf.join(' ').length>160){ chunks.push(buf.join(' ')); buf=[]; } });
+    if(buf.length) chunks.push(buf.join(' '));
+    let i=0;
+    const next=()=>{
+      if(i>=chunks.length){ if(onend) onend(); return; }
+      const chunk = chunks[i++];
+      if (keywordAnimOn) highlightKeywords(chunk);
+      const u = new SpeechSynthesisUtterance(chunk);
+      u.rate = 0.95;
+      u.onend = next;
+      window.speechSynthesis.speak(u);
     };
-    recognition.onerror = () => { recognizing = false; document.getElementById('micBtn').textContent = '🎤 Voice'; };
-    recognition.onend = () => {
-      if (recognizing && eleonOn) {
-        try { recognition.start(); } catch(e) {}
+    next();
+  }
+  function highlightKeywords(chunk) {
+    const keys = chunk.toLowerCase().split(/\s+/).filter(w => w.length > 4).slice(0, 6);
+    document.querySelectorAll('.word').forEach(el => {
+      const t = (el.textContent||'').toLowerCase().replace(/[^\w]/g,'');
+      if (keys.some(k => t.includes(k.replace(/[^\w]/g,'')))) {
+        el.classList.add('kw-hit');
+        setTimeout(() => el.classList.remove('kw-hit'), 900);
       }
-    };
-    recognizing = true;
-    recognition.start();
-    document.getElementById('micBtn').textContent = '⏹ Stop';
-    document.getElementById('probeStatus').textContent = 'listening…';
+    });
   }
-  function stopListen() {
-    recognizing = false;
-    try { if (recognition) recognition.stop(); } catch(e) {}
-    document.getElementById('micBtn').textContent = '🎤 Voice';
+  function readCurrent(soft){
+    const s = SLIDES[idx]; if(!s) return;
+    const text = fullSlideText(s);
+    if(!text){ if(!soft) speak('This slide has no readable text.'); return; }
+    document.getElementById('probeStatus').textContent = 'reading…';
+    speak(text, ()=>{ if(eleonOn) document.getElementById('probeStatus').textContent='attentive — listening'; });
   }
-  document.getElementById('cmd').addEventListener('keydown', e => { if (e.key === 'Enter') askEleon(); });
-  document.addEventListener('keydown', e => {
-    if (e.target.tagName === 'INPUT') return;
-    if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); go(1); }
-    if (e.key === 'ArrowLeft') { e.preventDefault(); go(-1); }
+  function toggleFullscreen(){
+    const el = document.documentElement;
+    if (!document.fullscreenElement) {
+      el.requestFullscreen?.();
+      document.body.classList.add('hide-ui');
+      setTimeout(()=>document.body.classList.remove('hide-ui'), 2000);
+    } else document.exitFullscreen?.();
+  }
+  function toggleAutoplay(){
+    autoplay = !autoplay;
+    document.getElementById('autoBtn').textContent = autoplay ? '⏸ Stop auto' : '▶ Auto-play';
+    if (autoTimer) clearInterval(autoTimer);
+    if (autoplay) {
+      autoTimer = setInterval(()=>{
+        if (idx >= SLIDES.length-1) { toggleAutoplay(); startClosing(); return; }
+        go(1);
+      }, 8000);
+      speak('Auto-play pilot started.');
+    } else speak('Auto-play stopped.');
+  }
+  async function startRecording(){
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+      recordedChunks = [];
+      mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+      mediaRecorder.ondataavailable = e => { if(e.data.size) recordedChunks.push(e.data); };
+      mediaRecorder.onstop = () => {
+        const blob = new Blob(recordedChunks, { type: 'video/webm' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'eleon_presentation.webm';
+        a.click();
+        stream.getTracks().forEach(t=>t.stop());
+        speak('Video saved.');
+      };
+      mediaRecorder.start();
+      speak('Recording started. Press End or stop sharing to finish.');
+      stream.getVideoTracks()[0].onended = () => { if(mediaRecorder && mediaRecorder.state!=='inactive') mediaRecorder.stop(); };
+    } catch(e) { speak('Could not start screen recording. Allow screen share, or use PDF export.'); }
+  }
+  function setAnim(name){
+    if(SLIDES[idx]){ SLIDES[idx].animIn=name; render();
+      if(!SHARED) fetch('/api/slides/'+SLIDES[idx].id+'/enhance',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'set_anim_in',value:name})});
+    }
+  }
+  function setWordAnim(name){ if(SLIDES[idx]){ SLIDES[idx].wordAnim=name; render(); } }
+  function toggleKw(){ keywordAnimOn=!keywordAnimOn; speak(keywordAnimOn?'Keyword animation on.':'Keyword animation off.'); }
+  function goOff(){ eleonOn=false; document.getElementById('probeDot').classList.add('off'); document.getElementById('probeStatus').textContent='Eleon is off'; stopListen(); if(qaTimer)clearTimeout(qaTimer); if(autoplay)toggleAutoplay(); }
+  function startClosing(){
+    phase='closing_qa';
+    const ti=SLIDES.findIndex(s=>/thank you/i.test(s.title||''));
+    if(ti>=0){idx=ti;render();}
+    if(mediaRecorder && mediaRecorder.state==='recording') mediaRecorder.stop();
+    speak('Thank you for your attention. Any questions?',()=>{
+      document.getElementById('probeStatus').textContent='Q&A — 1 minute…';
+      if(!recognizing) startListen();
+      if(qaTimer)clearTimeout(qaTimer);
+      qaTimer=setTimeout(()=>speak('No further questions. Goodbye.',()=>goOff()),60000);
+    });
+  }
+  async function enhance(action){
+    if(SHARED){speak('Presenter account required.');return;}
+    const s=SLIDES[idx]; if(!s||!s.id)return;
+    const r=await fetch('/api/slides/'+s.id+'/enhance',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({action})});
+    const j=await r.json();
+    if(j.ok&&j.slide){ s.accent=j.slide.accent;s.bg=j.slide.bg_color;s.animIn=j.slide.animation_in;s.body=j.slide.body;s.extra=j.slide.extra_data; render(); speak('Enhanced.'); }
+  }
+  async function askEleon(qOverride){
+    if(!eleonOn&&phase!=='closing_qa')return;
+    let q=(qOverride||document.getElementById('cmd').value).trim(); if(!q)return;
+    const low=q.toLowerCase().replace(/^eleon[,\s]+/i,'').trim();
+    if(['eleon','eleon!'].includes(q.toLowerCase())){speak('Eleon is on and attentive.');if(!recognizing)startListen();document.getElementById('cmd').value='';return;}
+    if(low.includes('turn off')){speak('Turning off.',()=>goOff());return;}
+    if(['read','read slide','read the slide'].includes(low)){readCurrent();document.getElementById('cmd').value='';return;}
+    if(low.includes('full screen')||low==='fullscreen'){toggleFullscreen();document.getElementById('cmd').value='';return;}
+    if(low.includes('auto play')||low==='autoplay'){toggleAutoplay();document.getElementById('cmd').value='';return;}
+    if(low.includes('record')||low.includes('video')){startRecording();document.getElementById('cmd').value='';return;}
+    document.getElementById('probeStatus').textContent='thinking…';
+    try{
+      const r=await fetch('/api/eleon/ask',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',
+        body:JSON.stringify({question:low||q,presentation_id:PID,slide_index:idx,phase})});
+      const j=await r.json();
+      if(j.action==='next')go(1);
+      else if(j.action==='prev')go(-1);
+      else if(j.action==='goto'&&typeof j.index==='number')gotoSlide(j.index);
+      else if(j.action==='closing')startClosing();
+      else if(j.action==='read')readCurrent();
+      else if(j.action==='enhance'&&j.enhance)await enhance(j.enhance);
+      if(j.speak) speak(j.speak,()=>{ if(j.go_off)goOff(); if(phase==='closing_qa'&&!j.go_off){ if(qaTimer)clearTimeout(qaTimer); qaTimer=setTimeout(()=>speak('No further questions. Goodbye.',()=>goOff()),60000);} });
+      else if(eleonOn) document.getElementById('probeStatus').textContent='attentive — listening';
+    }catch(e){speak('Connection issue.');}
+    document.getElementById('cmd').value='';
+  }
+  function toggleListen(){ if(recognizing)stopListen(); else startListen(); }
+  function startListen(){
+    const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+    if(!SR){speak('Type questions — voice not supported here.');return;}
+    recognition=new SR(); recognition.lang='en-US'; recognition.continuous=true; recognition.interimResults=false;
+    recognition.onresult=ev=>{ const text=ev.results[ev.results.length-1][0].transcript.trim(); if(!text)return;
+      document.getElementById('cmd').value=text; document.getElementById('probeDot').classList.add('listening'); askEleon(text);
+      setTimeout(()=>document.getElementById('probeDot').classList.remove('listening'),700); };
+    recognition.onend=()=>{ if(recognizing&&eleonOn) try{recognition.start();}catch(e){} };
+    recognizing=true; try{recognition.start();}catch(e){}
+    document.getElementById('micBtn').textContent='⏹ Stop';
+    document.getElementById('probeStatus').textContent='attentive — listening';
+  }
+  function stopListen(){ recognizing=false; try{recognition&&recognition.stop()}catch(e){} document.getElementById('micBtn').textContent='🎤 Listen'; }
+  document.getElementById('cmd').addEventListener('keydown',e=>{ if(e.key==='Enter')askEleon(); });
+  document.addEventListener('keydown',e=>{
+    if(e.target.tagName==='INPUT')return;
+    if(e.key==='ArrowRight'||e.key===' '){e.preventDefault();go(1);}
+    if(e.key==='ArrowLeft'){e.preventDefault();go(-1);}
+    if(e.key==='f'||e.key==='F')toggleFullscreen();
+    if(e.key==='r'||e.key==='R')readCurrent();
   });
+  document.addEventListener('fullscreenchange',()=>{ if(!document.fullscreenElement) document.body.classList.remove('hide-ui'); });
   render();
-  speak('Welcome to Eleon… your presentation partner.');
+  speak('Welcome to Eleon by Knowsoft. Fullscreen, auto-play, and voice are ready.',()=>{ startListen(); if(SLIDES.length) readCurrent(true); });
   </script>
 </body>
 </html>
