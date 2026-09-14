@@ -286,7 +286,7 @@
 
   <script>
     const PID = {{ presentation.id }};
-    const SLIDES = {{ slides | tojson }};
+    const SLIDES = {{ slides_json | default([]) | tojson }};
     let draftImages = [];
     let parsedTable = null;
     let chartInstance = null;
