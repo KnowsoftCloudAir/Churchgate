@@ -547,7 +547,7 @@ async def eleon_ask(
             if sc > best_score:
                 best_score, best_i = sc, i
         s = slides[best_i]
-        ans = f"According to the presentation, {(s.extra_data or s.body or s.title)[:400]}"
+        ans = f"{(s.extra_data or s.body or s.title)[:450]}"
         return JSONResponse({"ok": True, "action": "speak", "speak": ans, "go_off": False})
 
     if not q:
@@ -610,7 +610,7 @@ async def eleon_ask(
     if best_score <= 0:
         return outside_knowledge()
     s = slides[best_i]
-    ans = f"According to slide {best_i+1}, {s.title}. {(s.extra_data or s.body or '')[:380]}"
+    ans = f"{s.title}. {(s.extra_data or s.body or '')[:420]}"
     return JSONResponse({
         "ok": True,
         "action": "goto" if best_i != idx else "speak",
@@ -777,6 +777,57 @@ async def export_pdf(pid: int, user: User = Depends(require_user), session: Sess
         "Content-Disposition": f'attachment; filename="eleon_{pid}.pdf"'
     })
 
+
+
+
+@app.post("/presentations/{pid}/translate")
+async def translate_presentation(
+    pid: int,
+    request: Request,
+    user: User = Depends(require_user),
+    session: Session = Depends(get_session),
+):
+    """Translate all slide text into target language (MyMemory free API)."""
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+    lang = (data.get("lang") or "es").strip().lower()[:5]
+    p = session.get(Presentation, pid)
+    if not p or p.owner_id != user.id:
+        raise HTTPException(404)
+    slides = session.exec(select(Slide).where(Slide.presentation_id == pid).order_by(Slide.position)).all()
+
+    def tr(text: str) -> str:
+        text = (text or "").strip()
+        if not text:
+            return text
+        try:
+            import urllib.parse, urllib.request, json as _json
+            # chunk long text
+            out = []
+            for i in range(0, len(text), 400):
+                chunk = text[i:i+400]
+                q = urllib.parse.quote(chunk)
+                url = f"https://api.mymemory.translated.net/get?q={q}&langpair=en|{lang}"
+                with urllib.request.urlopen(url, timeout=12) as resp:
+                    j = _json.loads(resp.read().decode())
+                out.append(j.get("responseData", {}).get("translatedText") or chunk)
+            return " ".join(out)
+        except Exception:
+            return text
+
+    for s in slides:
+        s.title = tr(s.title)[:200]
+        s.body = tr(s.body)
+        s.extra_data = tr(s.extra_data)
+        s.notes = tr(s.notes)
+        session.add(s)
+    p.title = tr(p.title)[:200]
+    p.updated_at = datetime.utcnow()
+    session.add(p)
+    session.commit()
+    return JSONResponse({"ok": True, "lang": lang, "slides": len(slides)})
 
 
 # ---------- Admin ----------

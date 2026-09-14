@@ -15,6 +15,19 @@
     <a href="/presentations/{{ presentation.id }}/export.pdf" class="text-xs border border-white/15 rounded-lg px-2 py-1">PDF</a>
     <a href="/presentations/{{ presentation.id }}/notes.txt" class="text-xs border border-white/15 rounded-lg px-2 py-1">Notes</a>
     <button type="button" onclick="shareLink()" class="text-xs border border-white/15 rounded-lg px-2 py-1">Share</button>
+    <select id="trLang" class="text-xs rounded-lg px-1 py-1 text-slate-900">
+      <option value="es">Spanish</option>
+      <option value="fr">French</option>
+      <option value="pt">Portuguese</option>
+      <option value="de">German</option>
+      <option value="ar">Arabic</option>
+      <option value="hi">Hindi</option>
+      <option value="zh-CN">Chinese</option>
+      <option value="yo">Yoruba</option>
+      <option value="ig">Igbo</option>
+      <option value="ha">Hausa</option>
+    </select>
+    <button type="button" onclick="translateDeck()" class="text-xs border border-amber-400/40 text-amber-200 rounded-lg px-2 py-1">Translate deck</button>
     <a href="/presentations/{{ presentation.id }}/present" class="ml-auto rounded-xl bg-teal-600 px-4 py-2 text-sm font-bold">Present fullscreen</a>
   </header>
   {% if request.query_params.get('imported') %}
@@ -155,6 +168,14 @@
     </aside>
   </div>
   <script>
+  async function translateDeck(){
+    if(!confirm('Translate all slides to the selected language? This overwrites text.')) return;
+    const lang=document.getElementById('trLang').value;
+    const r=await fetch('/presentations/{{ presentation.id }}/translate',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({lang})});
+    const j=await r.json();
+    if(j.ok){ alert('Translated '+j.slides+' slides to '+j.lang+'. Reloading…'); location.reload(); }
+    else alert('Translation failed');
+  }
   async function shareLink(){
     const r=await fetch('/presentations/{{ presentation.id }}/share',{method:'POST',credentials:'same-origin'});
     const j=await r.json(); if(j.url){ const full=location.origin+j.url; await navigator.clipboard.writeText(full).catch(()=>{}); alert('Share:\\n'+full); }
