@@ -16,7 +16,7 @@ from sqlmodel import Session, select
 
 from app.database import create_db_and_tables, get_session, engine
 from app.live_hub import hub
-from app.models import User, UserRole, UserStatus, LoginCode, Presentation, Slide, EvalSession, EvalQuestion, EvalResponse, PresentationQANote, LiveSession, LiveViewer, LiveQuestion, AppSetting
+from app.models import User, UserRole, UserStatus, LoginCode, Presentation, Slide, EvalSession, EvalQuestion, EvalResponse, PresentationQANote, LiveSession, LiveViewer, LiveQuestion, AppSetting, SubscriptionSettings, UserSubscription
 from app.auth import (
     hash_password, verify_password, create_token,
     require_user, require_admin, user_from_request,
@@ -46,11 +46,12 @@ DURATION_DAYS = {"week": 7, "month": 30, "year": 365}
 async def lifespan(app: FastAPI):
     create_db_and_tables()
 
-    # migrate new subscription columns on sqlite
+    # migrate new columns on sqlite (user sub + slide images_json)
     try:
         from sqlalchemy import text
         with engine.begin() as conn:
             if "sqlite" in str(engine.url):
+                # User subscription columns
                 cols = [r[1] for r in conn.execute(text("PRAGMA table_info(user)")).fetchall()]
                 alters = []
                 if "sub_status" not in cols:
@@ -63,6 +64,14 @@ async def lifespan(app: FastAPI):
                     alters.append("ALTER TABLE user ADD COLUMN sub_plan VARCHAR DEFAULT 'trial'")
                 for a in alters:
                     conn.execute(text(a))
+                # Slide multi-image column
+                try:
+                    scols = [r[1] for r in conn.execute(text("PRAGMA table_info(slide)")).fetchall()]
+                    if scols and "images_json" not in scols:
+                        conn.execute(text("ALTER TABLE slide ADD COLUMN images_json TEXT"))
+                        print("migrated: slide.images_json")
+                except Exception as se:
+                    print("slide migrate warn:", se)
     except Exception as e:
         print("migrate warn:", e)
 
@@ -112,6 +121,26 @@ async def lifespan(app: FastAPI):
             session.add(demo)
             session.commit()
             session.refresh(demo)
+
+
+        # Seed default subscription settings
+        try:
+            from app.models import SubscriptionSettings as _SS
+            if not session.exec(select(_SS)).first():
+                session.add(_SS(
+                    title="Eleon subscription",
+                    currency="NGN",
+                    monthly_price=3000.0,
+                    annual_price=30000.0,
+                    bank_name="GTBank",
+                    account_name="Knowsoft Technologies",
+                    account_number="0123456789",
+                    instructions="Transfer to the account below. Use your email as narration, then upload evidence. Admin will activate your plan.",
+                ))
+                session.commit()
+                print("Seeded SubscriptionSettings")
+        except Exception as se:
+            print("sub settings seed:", se)
 
         # --- Demo presentation ---
         pres = session.exec(
@@ -375,8 +404,35 @@ async def edit_presentation(
     slides = session.exec(
         select(Slide).where(Slide.presentation_id == pid).order_by(Slide.position)
     ).all()
+    # Serializable dicts for Jinja tojson (ORM objects are not JSON-serializable)
+    slides_json = []
+    for s in slides:
+        slides_json.append({
+            "id": s.id,
+            "title": s.title or "",
+            "body": s.body or "",
+            "extra_data": s.extra_data or "",
+            "notes": s.notes or "",
+            "image_path": s.image_path,
+            "images_json": getattr(s, "images_json", None),
+            "animation_in": s.animation_in or "fade",
+            "animation_out": s.animation_out or "fade",
+            "bg_color": s.bg_color or "#0f172a",
+            "accent": s.accent or "#14b8a6",
+            "layout_style": s.layout_style or "title_body",
+            "icon_name": s.icon_name or "",
+            "chart_type": s.chart_type or "",
+            "chart_data": s.chart_data or "",
+            "word_animation": s.word_animation or "fadeUp",
+            "word_emphasis": bool(getattr(s, "word_emphasis", True)),
+            "online_image_url": s.online_image_url,
+            "pattern": s.pattern or "gradient_teal",
+            "image_style": s.image_style or "frame",
+            "position": s.position,
+        })
     return templates.TemplateResponse("presenter/editor.html", {
         "request": request, "user": user, "presentation": p, "slides": slides,
+        "slides_json": slides_json,
     })
 
 
@@ -410,7 +466,7 @@ async def add_slide(
     if not p or p.owner_id != user.id:
         raise HTTPException(404)
     n = len(session.exec(select(Slide).where(Slide.presentation_id == pid)).all())
-    session.add(Slide(
+    slide_kwargs = dict(
         presentation_id=pid, position=n, title=title.strip(),
         body=body, extra_data=extra_data or notes,
         notes=notes,
@@ -427,8 +483,16 @@ async def add_slide(
         image_style=image_style or "frame",
         word_emphasis=(word_emphasis=="on"),
         image_path=image_path or None,
-        images_json=images_json or None,
-    ))
+    )
+    # images_json may be missing on older DBs until migration runs
+    try:
+        from sqlalchemy import inspect as sa_inspect
+        cols = {c["name"] for c in sa_inspect(engine).get_columns("slide")}
+        if "images_json" in cols:
+            slide_kwargs["images_json"] = images_json or None
+    except Exception:
+        pass
+    session.add(Slide(**slide_kwargs))
     p.updated_at = datetime.utcnow()
     session.add(p)
     session.commit()
