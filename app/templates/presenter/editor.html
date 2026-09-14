@@ -11,42 +11,30 @@
   <header class="border-b border-white/10 px-4 py-3 flex flex-wrap gap-2 items-center">
     <img src="/static/img/knowsoft-logo.png" class="h-7" alt="Knowsoft" onerror="this.src='/static/icons/icon-192.png'">
     <a href="/dashboard" class="text-teal-300 text-sm font-semibold">← Dashboard</a>
-    <h1 class="font-bold truncate">{{ presentation.title }}</h1>
+    <h1 class="font-bold truncate max-w-[12rem]">{{ presentation.title }}</h1>
     <a href="/presentations/{{ presentation.id }}/export.pdf" class="text-xs border border-white/15 rounded-lg px-2 py-1">PDF</a>
     <a href="/presentations/{{ presentation.id }}/export.pptx" class="text-xs border border-amber-400/40 text-amber-200 rounded-lg px-2 py-1 font-semibold">PowerPoint</a>
-    <a href="/presentations/{{ presentation.id }}/export.pdf" class="text-xs border border-white/15 rounded-lg px-2 py-1">PDF</a>
     <form method="post" action="/presentations/{{ presentation.id }}/evaluation/create" class="inline">
       <button class="text-xs border border-indigo-400/40 text-indigo-200 rounded-lg px-2 py-1 font-semibold">Evaluate</button>
     </form>
     <a href="/presentations/{{ presentation.id }}/qa-notes" class="text-xs border border-white/15 rounded-lg px-2 py-1">Q&A notes</a>
-    <a href="/presentations/{{ presentation.id }}/notes.txt" class="text-xs border border-white/15 rounded-lg px-2 py-1">Notes</a>
-    <button type="button" onclick="shareLink()" class="text-xs border border-white/15 rounded-lg px-2 py-1">Share</button>
-    <select id="trLang" class="text-xs rounded-lg px-1 py-1 text-slate-900">
-      <option value="es">Spanish</option>
-      <option value="fr">French</option>
-      <option value="pt">Portuguese</option>
-      <option value="de">German</option>
-      <option value="ar">Arabic</option>
-      <option value="hi">Hindi</option>
-      <option value="zh-CN">Chinese</option>
-      <option value="yo">Yoruba</option>
-      <option value="ig">Igbo</option>
-      <option value="ha">Hausa</option>
-    </select>
-    <button type="button" onclick="translateDeck()" class="text-xs border border-amber-400/40 text-amber-200 rounded-lg px-2 py-1">Translate deck</button>
-    <a href="/presentations/{{ presentation.id }}/present" class="ml-auto rounded-xl bg-teal-600 px-4 py-2 text-sm font-bold">Present fullscreen</a>
+    <a href="/presentations/{{ presentation.id }}/present" class="rounded-xl bg-teal-600 px-3 py-1.5 text-sm font-bold">Present</a>
+    <a href="/logout" class="text-xs text-rose-300 border border-rose-500/30 rounded-lg px-2 py-1 ml-auto">Log out</a>
   </header>
-  {% if request.query_params.get('imported') %}
-  <div class="max-w-6xl mx-auto px-4 pt-3"><p class="text-emerald-400 text-sm">Document analysed into slides.</p></div>
-  {% endif %}
+
   <div class="max-w-6xl mx-auto px-4 py-6 grid lg:grid-cols-12 gap-4">
     <aside class="lg:col-span-3 space-y-2">
       <p class="text-xs uppercase text-slate-500">Slides</p>
       {% for s in slides %}
-      <a href="?sid={{ s.id }}" class="block rounded-xl border border-white/10 px-3 py-2 hover:bg-white/5 {% if request.query_params.get('sid')==s.id|string or (not request.query_params.get('sid') and loop.first) %}bg-indigo-900/50 border-indigo-400/40{% endif %}">
-        <span class="text-xs text-amber-300">#{{ loop.index }}</span>
-        <span class="block text-sm font-semibold truncate">{{ s.title or 'Untitled' }}</span>
-      </a>
+      <div class="flex gap-1 items-stretch">
+        <a href="?sid={{ s.id }}" class="flex-1 block rounded-xl border border-white/10 px-3 py-2 hover:bg-white/5 {% if request.query_params.get('sid')==s.id|string or (not request.query_params.get('sid') and loop.first) %}bg-indigo-900/50 border-indigo-400/40{% endif %}">
+          <span class="text-xs text-amber-300">#{{ loop.index }}</span>
+          <span class="block text-sm font-semibold truncate">{{ s.title or 'Untitled' }}</span>
+        </a>
+        <form method="post" action="/presentations/{{ presentation.id }}/slides/{{ s.id }}/delete" onsubmit="return confirm('Delete this slide?')">
+          <button class="h-full rounded-lg bg-rose-900/50 border border-rose-500/30 px-2 text-xs text-rose-200" title="Delete">✕</button>
+        </form>
+      </div>
       {% endfor %}
       <form method="post" action="/presentations/{{ presentation.id }}/slides" class="mt-3 rounded-xl border border-dashed border-white/20 p-3 space-y-2">
         <input name="title" placeholder="New slide title" class="w-full rounded-lg px-2 py-1.5 text-slate-900 text-sm">
@@ -55,13 +43,46 @@
       <form method="post" action="/presentations/{{ presentation.id }}/import-document" enctype="multipart/form-data" class="rounded-xl border border-teal-500/30 bg-teal-950/30 p-3 space-y-2">
         <p class="text-xs font-semibold text-teal-200">Import PDF/TXT → slides</p>
         <input type="file" name="document" accept=".pdf,.txt,.md" class="text-xs w-full" required>
-        <button class="w-full rounded-lg bg-teal-600 py-1.5 text-xs font-bold">Analyse & create</button>
+        <button class="w-full rounded-lg bg-teal-600 py-1.5 text-xs font-bold">Analyse</button>
+      </form>
+      <form method="post" action="/presentations/{{ presentation.id }}/chart-from-file" enctype="multipart/form-data" class="rounded-xl border border-amber-500/30 bg-amber-950/20 p-3 space-y-2">
+        <p class="text-xs font-semibold text-amber-200">Chart creator</p>
+        <p class="text-[10px] text-slate-500">Excel (.xlsx) / CSV / PDF with numbers</p>
+        <input type="file" name="datafile" accept=".xlsx,.xlsm,.csv,.txt,.pdf" class="text-xs w-full" required>
+        <input name="slide_title" placeholder="Chart title" class="w-full rounded-lg px-2 py-1 text-slate-900 text-xs">
+        <select name="chart_type" class="w-full rounded-lg px-2 py-1 text-slate-900 text-xs">
+          <option value="bar">Bar</option>
+          <option value="line">Line</option>
+          <option value="pie">Pie</option>
+          <option value="doughnut">Doughnut</option>
+        </select>
+        <select name="chart_animation" class="w-full rounded-lg px-2 py-1 text-slate-900 text-xs">
+          <option value="float3d">3D float</option>
+          <option value="cube">3D cube</option>
+          <option value="zoom">Zoom</option>
+          <option value="bounceIn">Bounce</option>
+        </select>
+        <button class="w-full rounded-lg bg-amber-600 py-1.5 text-xs font-bold">Create chart slide</button>
+      </form>
+      <form method="post" action="/presentations/{{ presentation.id }}/settings" enctype="multipart/form-data" class="rounded-xl border border-white/10 p-3 space-y-2">
+        <p class="text-xs font-semibold text-slate-300">Logo & footer</p>
+        <input type="file" name="logo" accept="image/*" class="text-xs w-full">
+        {% if presentation.logo_path %}<img src="{{ presentation.logo_path }}" class="h-10 rounded">{% endif %}
+        <input name="footer_text" value="{{ presentation.footer_text or '' }}" placeholder="Footer / footnote" class="w-full rounded-lg px-2 py-1 text-slate-900 text-xs">
+        <select name="default_pattern" class="w-full rounded-lg px-2 py-1 text-slate-900 text-xs">
+          {% for pat in ['gradient_teal','mesh_indigo','gold_lines','aurora','grid_dark','waves','orbs'] %}
+          <option value="{{ pat }}" {% if presentation.default_pattern==pat %}selected{% endif %}>{{ pat }}</option>
+          {% endfor %}
+        </select>
+        <button class="w-full rounded-lg bg-slate-700 py-1.5 text-xs font-bold">Save branding</button>
       </form>
     </aside>
+
     {% set sid = request.query_params.get('sid') %}
     {% set active = slides[0] if slides else none %}
     {% for s in slides %}{% if sid and s.id|string==sid %}{% set active = s %}{% endif %}{% endfor %}
     {% if not sid and slides %}{% set active = slides[0] %}{% endif %}
+
     <section class="lg:col-span-6">
       {% if active %}
       <form method="post" action="/presentations/{{ presentation.id }}/slides/{{ active.id }}" class="rounded-2xl border border-white/10 bg-slate-900/50 p-5 space-y-3">
@@ -69,30 +90,46 @@
         <label class="text-xs text-slate-400">Body</label>
         <textarea name="body" rows="4" class="w-full rounded-xl px-3 py-2 text-slate-900">{{ active.body }}</textarea>
         <label class="text-xs text-slate-400">Extra data (Eleon Q&A)</label>
-        <textarea name="extra_data" rows="3" class="w-full rounded-xl px-3 py-2 text-slate-900">{{ active.extra_data }}</textarea>
+        <textarea name="extra_data" rows="2" class="w-full rounded-xl px-3 py-2 text-slate-900">{{ active.extra_data }}</textarea>
         <label class="text-xs text-slate-400">Presenter notes</label>
         <textarea name="notes" rows="2" class="w-full rounded-xl px-3 py-2 text-slate-900">{{ active.notes }}</textarea>
 
         <div class="grid sm:grid-cols-2 gap-3">
           <div>
-            <label class="text-xs text-slate-400">Layout design</label>
+            <label class="text-xs text-slate-400">Layout</label>
             <select name="layout_style" class="w-full rounded-xl px-2 py-2 text-slate-900">
-              {% for L,lab in [('title_body','Title + body'),('image_left','Image left + text'),('image_right','Text + image right'),('image_bg','Photo background'),('centered','Centered showcase'),('chart','Chart focus')] %}
+              {% for L,lab in [('title_body','Title + body'),('image_left','Image left'),('image_right','Image right'),('image_bg','Photo background'),('centered','Centered'),('chart','Chart focus'),('icon_hero','Icon hero'),('split_accent','Split accent')] %}
               <option value="{{ L }}" {% if active.layout_style==L %}selected{% endif %}>{{ lab }}</option>
               {% endfor %}
             </select>
           </div>
           <div>
-            <label class="text-xs text-slate-400">Internal icon</label>
+            <label class="text-xs text-slate-400">Icon (tap to feature on slide)</label>
             <select name="icon_name" class="w-full rounded-xl px-2 py-2 text-slate-900">
               <option value="">None</option>
-              {% for ic in ['rocket','chart','target','star','globe','idea','team','growth','shield','heart','book','check'] %}
-              <option value="{{ ic }}" {% if active.icon_name==ic %}selected{% endif %}>{{ ic }}</option>
+              {% for ic,em in [('rocket','🚀 rocket'),('chart','📊 chart'),('target','🎯 target'),('star','⭐ star'),('globe','🌍 globe'),('idea','💡 idea'),('team','👥 team'),('growth','📈 growth'),('shield','🛡️ shield'),('heart','💚 heart'),('book','📘 book'),('check','✅ check'),('fire','🔥 fire'),('trophy','🏆 trophy'),('spark','✨ spark')] %}
+              <option value="{{ ic }}" {% if active.icon_name==ic %}selected{% endif %}>{{ em }}</option>
               {% endfor %}
             </select>
           </div>
           <div>
-            <label class="text-xs text-slate-400">Entrance (3D available)</label>
+            <label class="text-xs text-slate-400">Graphical pattern</label>
+            <select name="pattern" class="w-full rounded-xl px-2 py-2 text-slate-900">
+              {% for pat in ['gradient_teal','mesh_indigo','gold_lines','aurora','grid_dark','waves','orbs','sunset'] %}
+              <option value="{{ pat }}" {% if active.pattern==pat %}selected{% endif %}>{{ pat }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label class="text-xs text-slate-400">Picture redesign</label>
+            <select name="image_style" class="w-full rounded-xl px-2 py-2 text-slate-900">
+              {% for st in ['frame','circle','polaroid','shadow','duotone','glow','hex'] %}
+              <option value="{{ st }}" {% if active.image_style==st %}selected{% endif %}>{{ st }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label class="text-xs text-slate-400">Entrance animation</label>
             <select name="animation_in" class="w-full rounded-xl px-2 py-2 text-slate-900">
               {% for a in ['float3d','cube','fade','slideLeft','slideUp','zoom','flip','rotateIn','bounceIn'] %}
               <option value="{{ a }}" {% if active.animation_in==a %}selected{% endif %}>{{ a }}</option>
@@ -110,16 +147,16 @@
           <div>
             <label class="text-xs text-slate-400">Word entrance</label>
             <select name="word_animation" class="w-full rounded-xl px-2 py-2 text-slate-900">
-              {% for a in ['fadeUp','cascade','typewriter','none'] %}
+              {% for a in ['fadeUp','cascade','typewriter','emphasis','none'] %}
               <option value="{{ a }}" {% if active.word_animation==a %}selected{% endif %}>{{ a }}</option>
               {% endfor %}
             </select>
           </div>
           <div>
-            <label class="text-xs text-slate-400">Keyword animation while reading</label>
-            <select name="keyword_animation" class="w-full rounded-xl px-2 py-2 text-slate-900">
-              <option value="on" {% if active.keyword_animation %}selected{% endif %}>On</option>
-              <option value="off" {% if not active.keyword_animation %}selected{% endif %}>Off</option>
+            <label class="text-xs text-slate-400">Word emphasis while reading</label>
+            <select name="word_emphasis" class="w-full rounded-xl px-2 py-2 text-slate-900">
+              <option value="on" {% if active.word_emphasis %}selected{% endif %}>On</option>
+              <option value="off" {% if not active.word_emphasis %}selected{% endif %}>Off</option>
             </select>
           </div>
           <div>
@@ -132,8 +169,8 @@
             </select>
           </div>
           <div>
-            <label class="text-xs text-slate-400">Chart data (A:10,B:20 or JSON)</label>
-            <input name="chart_data" value="{{ active.chart_data or '' }}" placeholder="Lagos:40,Abuja:30,PH:20" class="w-full rounded-xl px-2 py-2 text-slate-900">
+            <label class="text-xs text-slate-400">Chart data (A:10,B:20)</label>
+            <input name="chart_data" value="{{ active.chart_data or '' }}" class="w-full rounded-xl px-2 py-2 text-slate-900">
           </div>
           <div>
             <label class="text-xs text-slate-400">Background</label>
@@ -144,53 +181,28 @@
             <input type="color" name="accent" value="{{ active.accent or '#14b8a6' }}" class="w-full h-10 rounded-xl">
           </div>
         </div>
-        <label class="text-xs text-slate-400">Online image URL (Picsum/Unsplash etc.)</label>
-        <input name="online_image_url" value="{{ active.online_image_url or '' }}" placeholder="https://images.unsplash.com/..." class="w-full rounded-xl px-3 py-2 text-slate-900 text-sm">
-        <p class="text-[11px] text-slate-500">Quick sample: https://picsum.photos/seed/eleon{{ active.id }}/800/500</p>
+        <label class="text-xs text-slate-400">Online image URL</label>
+        <input name="online_image_url" value="{{ active.online_image_url or '' }}" placeholder="https://…" class="w-full rounded-xl px-3 py-2 text-slate-900 text-sm">
+        <input type="hidden" name="keyword_animation" value="on">
         <button class="rounded-xl bg-teal-600 px-5 py-2 font-bold">Save slide</button>
       </form>
       <form method="post" action="/presentations/{{ presentation.id }}/slides/{{ active.id }}/image" enctype="multipart/form-data" class="mt-3 flex flex-wrap gap-2 items-center">
         <input type="file" name="image" accept="image/*" class="text-sm">
-        <button class="rounded-lg bg-slate-700 px-3 py-1.5 text-sm font-semibold">Upload your picture</button>
+        <button class="rounded-lg bg-slate-700 px-3 py-1.5 text-sm font-semibold">Upload picture</button>
         {% if active.image_path %}<img src="{{ active.image_path }}" class="h-14 rounded-lg border border-white/10">{% endif %}
       </form>
       {% else %}
       <p class="text-slate-400">Add a slide or import a document.</p>
       {% endif %}
     </section>
+
     <aside class="lg:col-span-3">
-      <div class="rounded-2xl border border-white/10 bg-slate-900/70 p-4 sticky top-4 space-y-2">
-        <p class="text-xs uppercase tracking-wide text-teal-300 font-bold">Design tips</p>
-        <p class="text-xs text-slate-400">Use <b>image left/right</b> to frame photos with text. <b>float3d / cube</b> for 3D entrance. Add chart data like <code class="text-amber-200">Q1:20,Q2:35</code>.</p>
-        <p class="text-xs text-slate-400">Present mode: Fullscreen · Auto-play · Video record · Keyword highlight while Eleon reads.</p>
-        {% if active %}
-        <div class="grid grid-cols-1 gap-2 pt-2" id="enhancePanel" data-sid="{{ active.id }}">
-          <button type="button" data-act="anim_zoom" class="enh rounded-xl border border-white/10 px-3 py-2 text-left text-sm">Zoom anim</button>
-          <button type="button" data-act="accent_gold" class="enh rounded-xl border border-amber-500/30 px-3 py-2 text-left text-sm">Gold accent</button>
-          <button type="button" data-act="bg_indigo" class="enh rounded-xl border border-indigo-500/30 px-3 py-2 text-left text-sm">Indigo bg</button>
-        </div>
-        {% endif %}
+      <div class="rounded-2xl border border-white/10 bg-slate-900/70 p-4 sticky top-4 space-y-2 text-xs text-slate-400">
+        <p class="text-teal-300 font-bold uppercase tracking-wide">Design</p>
+        <p>Pick an <b>icon</b>, <b>pattern</b>, and <b>picture redesign</b>. Use Chart creator for Excel/CSV/PDF data.</p>
+        <p class="text-amber-200/90">Word animation: <code>emphasis</code> + emphasis while reading for key-word pulse.</p>
       </div>
     </aside>
   </div>
-  <script>
-  async function translateDeck(){
-    if(!confirm('Translate all slides to the selected language? This overwrites text.')) return;
-    const lang=document.getElementById('trLang').value;
-    const r=await fetch('/presentations/{{ presentation.id }}/translate',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({lang})});
-    const j=await r.json();
-    if(j.ok){ alert('Translated '+j.slides+' slides to '+j.lang+'. Reloading…'); location.reload(); }
-    else alert('Translation failed');
-  }
-  async function shareLink(){
-    const r=await fetch('/presentations/{{ presentation.id }}/share',{method:'POST',credentials:'same-origin'});
-    const j=await r.json(); if(j.url){ const full=location.origin+j.url; await navigator.clipboard.writeText(full).catch(()=>{}); alert('Share:\\n'+full); }
-  }
-  document.querySelectorAll('.enh').forEach(btn=>btn.addEventListener('click',async()=>{
-    const sid=document.getElementById('enhancePanel').dataset.sid;
-    await fetch('/api/slides/'+sid+'/enhance',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:btn.dataset.act})});
-    alert('Applied');
-  }));
-  </script>
 </body>
 </html>

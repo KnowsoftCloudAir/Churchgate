@@ -379,6 +379,9 @@ async def update_slide(
     keyword_animation: str = Form("on"),
     word_animation: str = Form("fadeUp"),
     online_image_url: str = Form(""),
+    pattern: str = Form("gradient_teal"),
+    image_style: str = Form("frame"),
+    word_emphasis: str = Form("on"),
     user: User = Depends(require_user),
     session: Session = Depends(get_session),
 ):
@@ -401,6 +404,9 @@ async def update_slide(
     s.keyword_animation = (keyword_animation == "on")
     s.word_animation = word_animation or "fadeUp"
     s.online_image_url = (online_image_url or "").strip() or None
+    s.pattern = pattern or "gradient_teal"
+    s.image_style = image_style or "frame"
+    s.word_emphasis = (word_emphasis == "on")
     p.updated_at = datetime.utcnow()
     session.add(s)
     session.add(p)
@@ -468,6 +474,104 @@ async def delete_slide(
     session.delete(s)
     session.commit()
     return RedirectResponse(f"/presentations/{pid}/edit", status_code=303)
+
+
+@app.post("/presentations/{pid}/settings")
+async def presentation_settings(
+    pid: int,
+    footer_text: str = Form(""),
+    default_pattern: str = Form("gradient_teal"),
+    user: User = Depends(require_user),
+    session: Session = Depends(get_session),
+    logo: UploadFile = File(None),
+):
+    p = session.get(Presentation, pid)
+    if not p or p.owner_id != user.id:
+        raise HTTPException(404)
+    p.footer_text = (footer_text or "")[:500]
+    p.default_pattern = default_pattern or "gradient_teal"
+    if logo and getattr(logo, "filename", None):
+        data = await logo.read()
+        if data and len(data) < 5_000_000:
+            ext = (logo.filename.rsplit(".", 1)[-1] or "png").lower()[:4]
+            name = f"logo_{pid}_{secrets.token_hex(4)}.{ext}"
+            dest = UPLOAD_SLIDES / name
+            dest.write_bytes(data)
+            p.logo_path = f"/static/uploads/slides/{name}"
+    session.add(p)
+    session.commit()
+    return RedirectResponse(f"/presentations/{pid}/edit", status_code=303)
+
+
+@app.post("/presentations/{pid}/chart-from-file")
+async def chart_from_file(
+    pid: int,
+    user: User = Depends(require_user),
+    session: Session = Depends(get_session),
+    datafile: UploadFile = File(...),
+    chart_type: str = Form("bar"),
+    chart_animation: str = Form("float3d"),
+    slide_title: str = Form("Chart"),
+):
+    p = session.get(Presentation, pid)
+    if not p or p.owner_id != user.id:
+        raise HTTPException(404)
+    raw = await datafile.read()
+    fname = (datafile.filename or "").lower()
+    labels, values = [], []
+    if fname.endswith(".xlsx") or fname.endswith(".xlsm"):
+        try:
+            import openpyxl
+            wb = openpyxl.load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+            ws = wb.active
+            for row in ws.iter_rows(values_only=True):
+                if not row or row[0] is None:
+                    continue
+                lab = str(row[0]).strip()
+                try:
+                    val = float(row[1]) if len(row) > 1 and row[1] is not None else None
+                except (TypeError, ValueError):
+                    continue
+                if lab and val is not None:
+                    labels.append(lab[:40])
+                    values.append(val)
+        except Exception as e:
+            raise HTTPException(400, f"Excel read error: {e}")
+    elif fname.endswith(".csv") or fname.endswith(".txt"):
+        text = raw.decode("utf-8", errors="ignore")
+        for line in text.splitlines():
+            parts = [x.strip() for x in line.replace(";", ",").split(",")]
+            if len(parts) >= 2:
+                try:
+                    values.append(float(parts[1]))
+                    labels.append(parts[0][:40])
+                except ValueError:
+                    continue
+    elif fname.endswith(".pdf"):
+        text = extract_text_from_upload(fname, raw)
+        for m in re.finditer(r"([A-Za-z][A-Za-z0-9 /%\-]{1,30})\s*[:\|-]?\s*(\d+(?:\.\d+)?)", text):
+            labels.append(m.group(1).strip()[:40])
+            values.append(float(m.group(2)))
+            if len(labels) >= 12:
+                break
+    else:
+        raise HTTPException(400, "Upload .xlsx, .csv, or .pdf")
+    if not labels:
+        raise HTTPException(400, "No numeric data found in file")
+    chart_data = ",".join(f"{l}:{v}" for l, v in zip(labels, values))
+    n = len(session.exec(select(Slide).where(Slide.presentation_id == pid)).all())
+    session.add(Slide(
+        presentation_id=pid, position=n, title=slide_title or "Chart",
+        body="Data visualisation", extra_data=chart_data,
+        chart_type=chart_type or "bar", chart_data=chart_data,
+        animation_in=chart_animation or "float3d", layout_style="chart",
+        icon_name="chart", pattern="mesh_indigo",
+    ))
+    p.updated_at = datetime.utcnow()
+    session.add(p)
+    session.commit()
+    return RedirectResponse(f"/presentations/{pid}/edit", status_code=303)
+
 
 
 @app.get("/presentations/{pid}/present", response_class=HTMLResponse)

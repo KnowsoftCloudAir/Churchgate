@@ -44,6 +44,9 @@ class Presentation(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     share_token: Optional[str] = Field(default=None, index=True)
+    logo_path: Optional[str] = None
+    footer_text: str = Field(default="")
+    default_pattern: str = Field(default="gradient_teal")
 
 class Slide(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -65,6 +68,9 @@ class Slide(SQLModel, table=True):
     keyword_animation: bool = Field(default=True)
     word_animation: str = Field(default="fadeUp")  # none | fadeUp | typewriter | cascade
     online_image_url: Optional[str] = None
+    pattern: str = Field(default="gradient_teal")
+    image_style: str = Field(default="frame")
+    word_emphasis: bool = Field(default=True)
 
 
 class EvalSession(SQLModel, table=True):
