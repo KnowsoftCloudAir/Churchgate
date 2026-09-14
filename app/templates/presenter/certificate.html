@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Certificate — {{ name }}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>@media print{.no-print{display:none}}</style>
+</head>
+<body class="min-h-screen bg-slate-100 flex items-center justify-center p-6">
+  <div class="no-print fixed top-4 right-4"><button onclick="print()" class="rounded-lg bg-slate-900 text-white px-4 py-2">Print</button></div>
+  <div class="w-full max-w-3xl aspect-[1.4/1] border-8 border-teal-700 bg-gradient-to-br from-slate-50 to-teal-50 p-10 text-center shadow-2xl flex flex-col justify-center">
+    <img src="/static/img/knowsoft-logo.png" class="h-12 mx-auto mb-2" onerror="this.style.display='none'">
+    <p class="text-xs uppercase tracking-[0.3em] text-teal-800">Knowsoft · Eleon</p>
+    <h1 class="text-3xl font-serif font-bold text-slate-800 mt-4">Certificate of Participation</h1>
+    <p class="mt-6 text-slate-600">This certifies that</p>
+    <p class="text-3xl font-bold text-teal-900 my-3">{{ name }}</p>
+    <p class="text-slate-600">participated in</p>
+    <p class="text-xl font-semibold text-slate-800 mt-2">{{ presentation.title if presentation else eval.title }}</p>
+    <p class="text-sm text-slate-500 mt-8">Training evaluation · Eleon presentation partner</p>
+  </div>
+</body>
+</html>

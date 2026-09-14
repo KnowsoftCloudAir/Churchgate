@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Evaluation — Eleon</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <header class="border-b border-white/10 px-4 py-3 flex flex-wrap gap-2 items-center">
+    <a href="/presentations/{{ presentation.id }}/edit" class="text-teal-300 text-sm">← Editor</a>
+    <h1 class="font-bold">Evaluation — {{ presentation.title }}</h1>
+    <a href="/presentations/{{ presentation.id }}/evaluation/{{ eval.id }}/live" class="ml-auto rounded-xl bg-indigo-600 px-3 py-1.5 text-sm font-bold">Evaluation point (live)</a>
+  </header>
+  <div class="max-w-4xl mx-auto px-4 py-6 space-y-6">
+    <div class="rounded-2xl border border-teal-500/30 bg-teal-950/30 p-5">
+      <p class="text-sm text-teal-200 font-semibold mb-2">Share link & QR</p>
+      <p class="text-xs text-slate-400 break-all mb-3" id="evalUrl"></p>
+      <div id="qrcode" class="bg-white p-3 rounded-xl inline-block"></div>
+      <button type="button" onclick="navigator.clipboard.writeText(document.getElementById('evalUrl').textContent)" class="mt-3 block rounded-lg bg-slate-700 px-3 py-1.5 text-sm">Copy link</button>
+    </div>
+    <form method="post" action="/presentations/{{ presentation.id }}/evaluation/{{ eval.id }}/questions" class="rounded-2xl border border-white/10 p-4 space-y-2">
+      <p class="text-sm font-semibold">Add question</p>
+      <input name="prompt" required placeholder="Question text" class="w-full rounded-xl px-3 py-2 text-slate-900">
+      <input name="options" placeholder="Options (one per line) optional" class="w-full rounded-xl px-3 py-2 text-slate-900">
+      <input name="correct_answer" placeholder="Correct answer (optional, for scoring)" class="w-full rounded-xl px-3 py-2 text-slate-900">
+      <button class="rounded-xl bg-teal-600 px-4 py-2 text-sm font-bold">Add</button>
+    </form>
+    <div>
+      <p class="text-sm font-semibold mb-2">Questions ({{ questions|length }})</p>
+      <ol class="space-y-2 list-decimal list-inside text-sm text-slate-300">
+        {% for q in questions %}
+        <li>{{ q.prompt }}{% if q.correct_answer %} <span class="text-emerald-400">(key: {{ q.correct_answer }})</span>{% endif %}</li>
+        {% endfor %}
+      </ol>
+    </div>
+    <div class="rounded-2xl border border-white/10 p-4">
+      <div class="flex gap-2 items-center mb-3">
+        <h2 class="font-bold">Results</h2>
+        <button type="button" onclick="loadResults()" class="rounded-lg bg-amber-600 px-3 py-1 text-sm font-bold">Result</button>
+      </div>
+      <canvas id="pie" height="180"></canvas>
+      <div id="plist" class="mt-3 text-sm space-y-1"></div>
+    </div>
+  </div>
+  <script>
+  const url = location.origin + '/evaluate/{{ eval.token }}';
+  document.getElementById('evalUrl').textContent = url;
+  new QRCode(document.getElementById('qrcode'), { text: url, width: 180, height: 180 });
+  let chart;
+  async function loadResults(){
+    const r = await fetch('/api/evaluation/{{ eval.id }}/results', {credentials:'same-origin'});
+    const j = await r.json();
+    const b = j.bands;
+    if (chart) chart.destroy();
+    chart = new Chart(document.getElementById('pie'), {
+      type: 'pie',
+      data: {
+        labels: ['100%–90%','89%–60%','59%–30%','29%–0%'],
+        datasets: [{ data: [b['90-100'], b['60-89'], b['30-59'], b['0-29']],
+          backgroundColor: ['#14b8a6','#6366f1','#f59e0b','#f43f5e'] }]
+      },
+      options: { plugins: { legend: { labels: { color: '#e2e8f0' } } } }
+    });
+    document.getElementById('plist').innerHTML = (j.participants||[]).map(p =>
+      `<div class="flex justify-between border-b border-white/5 py-1"><span>${p.name} <span class="text-slate-500">${p.email||''}</span></span><span class="text-teal-300">${p.score}%</span>
+      <a class="text-amber-300 text-xs" target="_blank" href="/evaluate/{{ eval.token }}/certificate?name=${encodeURIComponent(p.name)}">Certificate</a></div>`
+    ).join('') || '<p class="text-slate-500">No submissions yet</p>';
+  }
+  </script>
+</body>
+</html>

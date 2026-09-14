@@ -65,3 +65,40 @@ class Slide(SQLModel, table=True):
     keyword_animation: bool = Field(default=True)
     word_animation: str = Field(default="fadeUp")  # none | fadeUp | typewriter | cascade
     online_image_url: Optional[str] = None
+
+
+class EvalSession(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    presentation_id: int = Field(index=True)
+    owner_id: int = Field(index=True)
+    title: str = Field(default="Training evaluation")
+    token: str = Field(index=True, unique=True)
+    is_active: bool = Field(default=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class EvalQuestion(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    session_id: int = Field(index=True)
+    position: int = Field(default=0)
+    prompt: str = Field(sa_column=Column(Text))
+    options: str = Field(default="", sa_column=Column(Text))  # JSON list or newline choices
+    correct_answer: str = Field(default="")  # for scoring; empty = survey only
+
+
+class EvalResponse(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    session_id: int = Field(index=True)
+    participant_name: str = Field(default="")
+    participant_email: str = Field(default="")
+    answers_json: str = Field(default="{}", sa_column=Column(Text))
+    score_pct: float = Field(default=0.0)
+    submitted_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class PresentationQANote(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    presentation_id: int = Field(index=True)
+    question: str = Field(sa_column=Column(Text))
+    answer: str = Field(default="", sa_column=Column(Text))
+    created_at: datetime = Field(default_factory=datetime.utcnow)

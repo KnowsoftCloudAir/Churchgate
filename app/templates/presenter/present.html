@@ -83,9 +83,13 @@
       <button type="button" onclick="toggleFullscreen()" class="rounded-lg bg-indigo-600 text-white px-2 py-1 text-xs font-semibold">⛶ Fullscreen</button>
       <button type="button" id="autoBtn" onclick="toggleAutoplay()" class="rounded-lg bg-violet-700 text-white px-2 py-1 text-xs">▶ Auto-play</button>
       <button type="button" id="musicBtn" onclick="toggleMusic()" class="rounded-lg bg-slate-700 text-white px-2 py-1 text-xs">🎵 Music</button>
-      <select id="musicTrack" class="text-xs rounded-lg px-1 py-1 text-slate-900 max-w-[6.5rem]">
-        <option value="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3">Instrumental</option>
-        <option value="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3">Soft alt</option>
+      <select id="musicTrack" class="text-xs rounded-lg px-1 py-1 text-slate-900 max-w-[7rem]">
+        <option value="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3">Helix 1</option>
+        <option value="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3">Helix 2</option>
+        <option value="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3">Helix 3</option>
+        <option value="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3">Helix 8</option>
+        <option value="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-10.mp3">Helix 10</option>
+        <option value="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-16.mp3">Helix 16</option>
       </select>
       <button type="button" id="micBtn" onclick="toggleListen()" class="rounded-lg bg-slate-600 text-white px-2 py-1 text-xs font-semibold">🎤 Voice</button>
       <button type="button" onclick="readCurrent()" class="rounded-lg bg-white/10 text-white px-2 py-1 text-xs">Read</button>
@@ -157,6 +161,8 @@
   let qaTimer = null, autoChain = null, hideTimer = null;
   let recognition = null, chartInst = null, mediaRecorder = null;
   let keywordAnimOn = true, selectedVoice = null, musicOn = false;
+  let paceGap = 5000; // pause after slide before listening window
+  let listenWindow = 4000; // voice on window for commands
   const bgMusic = document.getElementById('bgMusic');
 
   /* Cursor reveals chrome */
@@ -330,18 +336,56 @@
   function scheduleNextAfterSpeech() {
     if (!autoplay) return;
     if (autoChain) clearTimeout(autoChain);
+    // After speech: 5s quiet pause (voice off), then 4s voice window, then continue
     autoChain = setTimeout(async () => {
       if (!autoplay) return;
-      if (idx >= SLIDES.length-1) {
+      // voice window
+      const wasVoice = voiceEnabled;
+      if (!voiceEnabled) {
+        // temporary listen without full toggle UI noise
+        try { startListenQuiet(); } catch(e) {}
+      }
+      const st = document.getElementById('probeStatus');
+      if (st) st.textContent = 'listening for commands (4s)…';
+      await new Promise(r => setTimeout(r, listenWindow));
+      if (!autoplay) return;
+      if (!wasVoice) stopListen();
+      if (st) st.textContent = '';
+      if (idx >= SLIDES.length - 1) {
         await startClosing();
         return;
       }
       stopSpeaking();
+      // ensure voice off while presenting
+      if (voiceEnabled) { /* keep user preference */ }
+      else { stopListen(); }
       idx++;
       render();
+      // while reading: force voice off to avoid interruption
+      const keepVoice = voiceEnabled;
+      if (keepVoice) { voiceEnabled = false; stopListen(); }
       await readCurrent();
+      if (keepVoice) { voiceEnabled = true; startListen(); }
       scheduleNextAfterSpeech();
-    }, 800);
+    }, paceGap);
+  }
+  function startListenQuiet(){
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR || !window.isSecureContext) return;
+    stopListen();
+    recognition = new SR();
+    recognition.lang = document.getElementById('langSelect').value || 'en-US';
+    recognition.continuous = true;
+    recognition.interimResults = false;
+    recognition.onresult = (ev) => {
+      for (let i = ev.resultIndex; i < ev.results.length; i++) {
+        if (!ev.results[i].isFinal) continue;
+        const text = (ev.results[i][0].transcript || '').trim();
+        if (text) { wakeProbe(); askEleon(text); }
+      }
+    };
+    recognition.onend = () => { if (autoplay) try { recognition.start(); } catch(e){} };
+    try { recognition.start(); } catch(e){}
   }
   function toggleAutoplay(force) {
     if (typeof force === 'boolean') autoplay = force;
@@ -350,11 +394,22 @@
     if (autoChain) clearTimeout(autoChain);
     if (autoplay) {
       phase = 'present';
+      // soft music autoplay if not on
+      if (!musicOn) {
+        try {
+          bgMusic.src = document.getElementById('musicTrack').value;
+          bgMusic.volume = 0.12;
+          bgMusic.play().then(()=>{ musicOn=true; document.getElementById('musicBtn').textContent='🎵 On'; }).catch(()=>{});
+        } catch(e){}
+      }
       (async () => {
-        // Start from beginning if at end
         if (idx >= SLIDES.length-1) idx = 0;
         render();
+        // voice off while reading
+        const kv = voiceEnabled;
+        if (kv) { voiceEnabled=false; stopListen(); }
         await readCurrent();
+        if (kv) { voiceEnabled=true; startListen(); }
         scheduleNextAfterSpeech();
       })();
     } else {
@@ -429,6 +484,18 @@
       await speak('Continuing.'); toggleAutoplay(true);
       document.getElementById('cmd').value=''; return;
     }
+    if (cmdMatch(low, ['present faster','faster','speed up'])) {
+      paceGap = Math.max(1500, paceGap - 1500);
+      listenWindow = Math.max(2000, listenWindow - 500);
+      await speak('Presenting faster.');
+      document.getElementById('cmd').value=''; return;
+    }
+    if (cmdMatch(low, ['slow down','slower','present slower'])) {
+      paceGap = Math.min(12000, paceGap + 2000);
+      listenWindow = Math.min(8000, listenWindow + 1000);
+      await speak('Slowing down.');
+      document.getElementById('cmd').value=''; return;
+    }
     if (cmdMatch(low, ['start','begin','start autoplay','start auto play','start presentation'])) {
       idx = 0; phase='present'; await speak('Starting presentation.'); toggleAutoplay(true);
       document.getElementById('cmd').value=''; return;
@@ -471,7 +538,14 @@
       else if (j.action === 'read') await readCurrent();
       if (j.speak) {
         await speak(j.speak);
-        // Outside knowledge: stay quiet, wait for next command (no go_off)
+        // Remember Q&A for presenter
+        try {
+          fetch('/api/presentations/'+PID+'/qa-note', {
+            method:'POST', credentials:'same-origin',
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ question: low||q, answer: j.speak })
+          });
+        } catch(e) {}
       }
     } catch (e) {
       await speak('I could not reach the server.');

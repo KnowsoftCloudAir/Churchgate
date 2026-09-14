@@ -15,7 +15,7 @@ from fastapi.templating import Jinja2Templates
 from sqlmodel import Session, select
 
 from app.database import create_db_and_tables, get_session, engine
-from app.models import User, UserRole, UserStatus, LoginCode, Presentation, Slide
+from app.models import User, UserRole, UserStatus, LoginCode, Presentation, Slide, EvalSession, EvalQuestion, EvalResponse, PresentationQANote
 from app.auth import (
     hash_password, verify_password, create_token,
     require_user, require_admin, user_from_request,
@@ -850,6 +850,197 @@ async def export_pptx(pid: int, user: User = Depends(require_user), session: Ses
         media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
         headers={"Content-Disposition": f'attachment; filename="eleon_{pid}.pptx"'},
     )
+
+
+
+# ---------- Evaluation & Q&A notes ----------
+@app.post("/api/presentations/{pid}/qa-note")
+async def save_qa_note(pid: int, request: Request, session: Session = Depends(get_session)):
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+    user = user_from_request(request, session)
+    p = session.get(Presentation, pid)
+    if not p:
+        raise HTTPException(404)
+    if user and p.owner_id != user.id and not p.share_token:
+        raise HTTPException(403)
+    note = PresentationQANote(
+        presentation_id=pid,
+        question=(data.get("question") or "")[:2000],
+        answer=(data.get("answer") or "")[:4000],
+    )
+    session.add(note)
+    session.commit()
+    return JSONResponse({"ok": True, "id": note.id})
+
+
+@app.get("/presentations/{pid}/qa-notes", response_class=HTMLResponse)
+async def list_qa_notes(pid: int, request: Request, user: User = Depends(require_user), session: Session = Depends(get_session)):
+    p = session.get(Presentation, pid)
+    if not p or p.owner_id != user.id:
+        raise HTTPException(404)
+    notes = session.exec(
+        select(PresentationQANote).where(PresentationQANote.presentation_id == pid).order_by(PresentationQANote.created_at.desc())
+    ).all()
+    return templates.TemplateResponse("presenter/qa_notes.html", {
+        "request": request, "user": user, "presentation": p, "notes": notes,
+    })
+
+
+@app.post("/presentations/{pid}/evaluation/create")
+async def create_evaluation(pid: int, user: User = Depends(require_user), session: Session = Depends(get_session)):
+    p = session.get(Presentation, pid)
+    if not p or p.owner_id != user.id:
+        raise HTTPException(404)
+    token = secrets.token_urlsafe(10)
+    ev = EvalSession(presentation_id=pid, owner_id=user.id, title=f"Eval — {p.title}", token=token)
+    session.add(ev)
+    session.commit()
+    session.refresh(ev)
+    # Auto questions from slides
+    slides = session.exec(select(Slide).where(Slide.presentation_id == pid).order_by(Slide.position)).all()
+    pos = 0
+    for s in slides[:8]:
+        if not (s.title or s.body):
+            continue
+        prompt = f"What is a key point from: {(s.title or '')[:80]}?"
+        session.add(EvalQuestion(session_id=ev.id, position=pos, prompt=prompt, options="", correct_answer=""))
+        pos += 1
+    if pos == 0:
+        session.add(EvalQuestion(session_id=ev.id, position=0, prompt="How useful was this training? (1-5)", options="1\n2\n3\n4\n5", correct_answer=""))
+        session.add(EvalQuestion(session_id=ev.id, position=1, prompt="Would you recommend this session?", options="Yes\nNo\nMaybe", correct_answer=""))
+    session.commit()
+    return RedirectResponse(f"/presentations/{pid}/evaluation/{ev.id}", status_code=303)
+
+
+@app.post("/presentations/{pid}/evaluation/{eid}/questions")
+async def add_eval_question(
+    pid: int, eid: int,
+    prompt: str = Form(...),
+    options: str = Form(""),
+    correct_answer: str = Form(""),
+    user: User = Depends(require_user),
+    session: Session = Depends(get_session),
+):
+    ev = session.get(EvalSession, eid)
+    p = session.get(Presentation, pid)
+    if not ev or not p or p.owner_id != user.id or ev.presentation_id != pid:
+        raise HTTPException(404)
+    n = len(session.exec(select(EvalQuestion).where(EvalQuestion.session_id == eid)).all())
+    session.add(EvalQuestion(session_id=eid, position=n, prompt=prompt, options=options, correct_answer=correct_answer.strip()))
+    session.commit()
+    return RedirectResponse(f"/presentations/{pid}/evaluation/{eid}", status_code=303)
+
+
+@app.get("/presentations/{pid}/evaluation/{eid}", response_class=HTMLResponse)
+async def evaluation_admin(pid: int, eid: int, request: Request, user: User = Depends(require_user), session: Session = Depends(get_session)):
+    ev = session.get(EvalSession, eid)
+    p = session.get(Presentation, pid)
+    if not ev or not p or p.owner_id != user.id or ev.presentation_id != pid:
+        raise HTTPException(404)
+    qs = session.exec(select(EvalQuestion).where(EvalQuestion.session_id == eid).order_by(EvalQuestion.position)).all()
+    resps = session.exec(select(EvalResponse).where(EvalResponse.session_id == eid).order_by(EvalResponse.submitted_at.desc())).all()
+    return templates.TemplateResponse("presenter/evaluation.html", {
+        "request": request, "user": user, "presentation": p, "eval": ev, "questions": qs, "responses": resps,
+    })
+
+
+@app.get("/presentations/{pid}/evaluation/{eid}/live", response_class=HTMLResponse)
+async def evaluation_live(pid: int, eid: int, request: Request, user: User = Depends(require_user), session: Session = Depends(get_session)):
+    ev = session.get(EvalSession, eid)
+    p = session.get(Presentation, pid)
+    if not ev or not p or p.owner_id != user.id:
+        raise HTTPException(404)
+    return templates.TemplateResponse("presenter/evaluation_live.html", {
+        "request": request, "user": user, "presentation": p, "eval": ev,
+    })
+
+
+@app.get("/api/evaluation/{token}/responses")
+async def eval_responses_public(token: str, session: Session = Depends(get_session)):
+    ev = session.exec(select(EvalSession).where(EvalSession.token == token)).first()
+    if not ev:
+        raise HTTPException(404)
+    resps = session.exec(select(EvalResponse).where(EvalResponse.session_id == ev.id).order_by(EvalResponse.submitted_at.desc())).all()
+    return JSONResponse({
+        "ok": True,
+        "items": [{"name": r.participant_name, "email": r.participant_email, "score": r.score_pct, "at": r.submitted_at.isoformat()} for r in resps],
+    })
+
+
+@app.get("/api/evaluation/{eid}/results")
+async def eval_results(eid: int, user: User = Depends(require_user), session: Session = Depends(get_session)):
+    ev = session.get(EvalSession, eid)
+    if not ev or ev.owner_id != user.id:
+        raise HTTPException(404)
+    resps = session.exec(select(EvalResponse).where(EvalResponse.session_id == eid)).all()
+    bands = {"90-100": 0, "60-89": 0, "30-59": 0, "0-29": 0}
+    for r in resps:
+        s = r.score_pct
+        if s >= 90: bands["90-100"] += 1
+        elif s >= 60: bands["60-89"] += 1
+        elif s >= 30: bands["30-59"] += 1
+        else: bands["0-29"] += 1
+    return JSONResponse({
+        "ok": True,
+        "bands": bands,
+        "participants": [{"name": r.participant_name, "email": r.participant_email, "score": r.score_pct} for r in resps],
+    })
+
+
+@app.get("/evaluate/{token}", response_class=HTMLResponse)
+async def evaluate_form(token: str, request: Request, session: Session = Depends(get_session)):
+    ev = session.exec(select(EvalSession).where(EvalSession.token == token, EvalSession.is_active == True)).first()
+    if not ev:
+        raise HTTPException(404, "Evaluation not found or closed")
+    qs = session.exec(select(EvalQuestion).where(EvalQuestion.session_id == ev.id).order_by(EvalQuestion.position)).all()
+    p = session.get(Presentation, ev.presentation_id)
+    return templates.TemplateResponse("presenter/evaluate_take.html", {
+        "request": request, "eval": ev, "questions": qs, "presentation": p,
+    })
+
+
+@app.post("/evaluate/{token}")
+async def evaluate_submit(token: str, request: Request, session: Session = Depends(get_session)):
+    ev = session.exec(select(EvalSession).where(EvalSession.token == token, EvalSession.is_active == True)).first()
+    if not ev:
+        raise HTTPException(404)
+    form = await request.form()
+    name = (form.get("participant_name") or "Guest").strip()[:120]
+    email = (form.get("participant_email") or "").strip()[:200]
+    qs = session.exec(select(EvalQuestion).where(EvalQuestion.session_id == ev.id).order_by(EvalQuestion.position)).all()
+    answers = {}
+    scored = 0
+    correct = 0
+    for q in qs:
+        ans = (form.get(f"q_{q.id}") or "").strip()
+        answers[str(q.id)] = ans
+        if q.correct_answer:
+            scored += 1
+            if ans.lower() == q.correct_answer.lower():
+                correct += 1
+    pct = (100.0 * correct / scored) if scored else 100.0
+    session.add(EvalResponse(session_id=ev.id, participant_name=name, participant_email=email,
+                             answers_json=__import__("json").dumps(answers), score_pct=round(pct, 1)))
+    session.commit()
+    return templates.TemplateResponse("presenter/evaluate_done.html", {
+        "request": request, "eval": ev, "name": name, "score": round(pct, 1), "token": token,
+    })
+
+
+@app.get("/evaluate/{token}/certificate")
+async def evaluate_certificate(token: str, request: Request, session: Session = Depends(get_session)):
+    name = (request.query_params.get("name") or "Participant").strip()[:120]
+    ev = session.exec(select(EvalSession).where(EvalSession.token == token)).first()
+    if not ev:
+        raise HTTPException(404)
+    p = session.get(Presentation, ev.presentation_id)
+    return templates.TemplateResponse("presenter/certificate.html", {
+        "request": request, "name": name, "eval": ev, "presentation": p,
+    })
+
 
 
 # ---------- Admin ----------
