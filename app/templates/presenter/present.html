@@ -317,11 +317,10 @@
   }
   function syncLiveIndex(){
     if (!liveToken) return;
-    // WebSocket instant
+    const payload = { type: 'slide', index: idx };
     if (liveWs && liveWs.readyState === 1) {
-      liveWs.send(JSON.stringify({ type: 'slide', index: idx }));
+      try { liveWs.send(JSON.stringify(payload)); } catch (e) {}
     }
-    // HTTP fallback
     fetch('/api/live/'+liveToken+'/sync', {
       method:'POST', credentials:'same-origin',
       headers:{'Content-Type':'application/json'},
@@ -489,6 +488,7 @@
           scales:(s.chartType==='pie'||s.chartType==='doughnut')?{}:{x:{ticks:{color:'#94a3b8'}},y:{ticks:{color:'#94a3b8'}}} }
       });
     }
+    try { if (typeof syncLiveIndex === 'function') syncLiveIndex(); } catch (e) {}
   }
 
   function speak(text, onend) {
@@ -542,6 +542,7 @@
     stopSpeaking();
     idx = Math.max(0, Math.min(SLIDES.length-1, idx+d));
     render();
+    syncLiveIndex();
     if (autoplay && eleonOn) {
       await readCurrent();
       scheduleNextAfterSpeech();
@@ -551,6 +552,7 @@
     if (phase === 'closing_qa') return;
     if (i<0||i>=SLIDES.length) return;
     stopSpeaking(); idx=i; render();
+    syncLiveIndex();
     if (autoplay && eleonOn) { await readCurrent(); scheduleNextAfterSpeech(); }
   }
   function scheduleNextAfterSpeech() {

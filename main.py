@@ -1033,7 +1033,7 @@ async def ws_live(websocket: WebSocket, token: str):
                         ls.current_index = idx
                         sess.add(ls)
                         sess.commit()
-                await live_hub.broadcast(token, {"type": "slide", "index": idx}, skip=websocket)
+                await live_hub.broadcast(token, {"type": "slide", "index": idx})  # all viewers
             elif mtype == "speak":
                 # host Eleon speech text → all viewers TTS
                 await live_hub.broadcast(token, {
@@ -1113,7 +1113,7 @@ async def live_stop(pid: int, user: User = Depends(require_user), session: Sessi
 
 @app.post("/api/live/{token}/sync")
 async def live_sync(token: str, request: Request, session: Session = Depends(get_session)):
-    """Host pushes current slide index."""
+    """Host pushes current slide index — also notifies WebSocket viewers."""
     user = user_from_request(request, session)
     ls = session.exec(select(LiveSession).where(LiveSession.token == token, LiveSession.is_active == True)).first()
     if not ls:
@@ -1124,10 +1124,15 @@ async def live_sync(token: str, request: Request, session: Session = Depends(get
         data = await request.json()
     except Exception:
         data = {}
-    ls.current_index = int(data.get("index") or 0)
+    idx = int(data.get("index") or 0)
+    ls.current_index = idx
     session.add(ls)
     session.commit()
-    return JSONResponse({"ok": True})
+    try:
+        await live_hub.broadcast(token, {"type": "slide", "index": idx})
+    except Exception:
+        pass
+    return JSONResponse({"ok": True, "index": idx})
 
 
 @app.get("/api/live/{token}/state")

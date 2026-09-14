@@ -9,17 +9,17 @@
   <style>
     html,body{height:100%;margin:0;background:#020617;color:#fff;overflow:hidden;}
     #stage{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:1.25rem 1.25rem 8rem;}
-    .card{max-width:960px;width:100%;border-radius:1.25rem;padding:1.75rem;background:linear-gradient(145deg,rgba(15,23,42,.92),rgba(15,23,42,.75));border:1px solid rgba(45,212,191,.35);transition:opacity .25s;}
+    .card{max-width:960px;width:100%;border-radius:1.25rem;padding:1.75rem;background:linear-gradient(145deg,rgba(15,23,42,.92),rgba(15,23,42,.75));border:1px solid rgba(45,212,191,.35);}
     .chat{position:fixed;bottom:0;left:0;right:0;z-index:20;background:rgba(15,23,42,.96);border-top:1px solid rgba(255,255,255,.1);padding:.65rem;}
     .online{position:fixed;top:2.5rem;right:.5rem;z-index:15;width:9rem;font-size:11px;background:rgba(15,23,42,.85);border:1px solid rgba(255,255,255,.12);border-radius:.75rem;padding:.5rem;max-height:40vh;overflow:auto;}
   </style>
 </head>
 <body>
-  <div class="fixed top-3 left-3 text-xs text-teal-300 z-10">Live · {{ viewer.name }} · <span id="conn">connecting…</span></div>
+  <div class="fixed top-3 left-3 text-xs text-teal-300 z-10">Live · {{ viewer.name }} · <span id="conn">connecting…</span> · slide <span id="snum">1</span></div>
   <div class="online" id="online"><p class="text-teal-300 font-semibold">Online</p></div>
   <div id="stage"></div>
   <div class="chat">
-    <p class="text-[11px] text-slate-400 mb-1 max-w-3xl mx-auto">Ask a question (instant to presenter)</p>
+    <p class="text-[11px] text-slate-400 mb-1 max-w-3xl mx-auto">Ask a question</p>
     <div class="flex gap-2 max-w-3xl mx-auto">
       <input id="q" type="text" placeholder="Your question…" class="flex-1 rounded-xl px-3 py-2 text-slate-900 text-sm">
       <button type="button" onclick="sendQ()" class="rounded-xl bg-teal-600 px-4 py-2 text-sm font-bold">Send</button>
@@ -28,17 +28,24 @@
   <script>
   const TOKEN = {{ token|tojson }};
   const NAME = {{ viewer.name|tojson }};
-  const VID = {{ vid|tojson }};
-  let slides = [], idx = 0, ws = null;
+  const VID = String({{ vid|tojson }});
+  let slides = [], idx = 0, ws = null, lastIdx = -1;
 
   function esc(t){return (t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');}
-  function render(){
-    const s = slides[idx] || {title:'Waiting…', body:''};
+  function applyIndex(i) {
+    if (!slides.length) return;
+    const n = Math.max(0, Math.min(slides.length - 1, Number(i) || 0));
+    if (n === lastIdx && document.getElementById('stage').innerHTML) return;
+    idx = n;
+    lastIdx = n;
+    const s = slides[idx] || {title:'', body:''};
+    document.getElementById('snum').textContent = (idx + 1) + '/' + slides.length;
     document.getElementById('stage').innerHTML = `
       <div class="card">
-        <p class="text-[10px] uppercase tracking-widest text-teal-300 mb-2">Knowsoft Eleon · Live ${idx+1}/${slides.length||1}</p>
+        <p class="text-[10px] uppercase tracking-widest text-teal-300 mb-2">Knowsoft Eleon · Live</p>
         <h1 class="text-2xl sm:text-4xl font-black mb-3">${esc(s.title||'')}</h1>
         <div class="text-slate-200 text-base sm:text-lg whitespace-pre-wrap">${esc(s.body||'')}</div>
+        ${s.image || s.onlineImage ? `<img src="${esc(s.onlineImage||s.image)}" class="mt-4 max-h-48 rounded-xl mx-auto">` : ''}
       </div>`;
   }
   function speak(text){
@@ -49,8 +56,7 @@
     speechSynthesis.speak(u);
   }
   function renderOnline(list){
-    const el = document.getElementById('online');
-    el.innerHTML = '<p class="text-teal-300 font-semibold mb-1">Online</p>' +
+    document.getElementById('online').innerHTML = '<p class="text-teal-300 font-semibold mb-1">Online</p>' +
       (list||[]).map(p => `<div>${p.role==='host'?'🎤':'👤'} ${esc(p.name)}</div>`).join('') ||
       '<p class="text-slate-500">—</p>';
   }
@@ -58,23 +64,25 @@
     const r = await fetch('/api/live/'+TOKEN+'/state');
     const j = await r.json();
     slides = j.slides || [];
-    idx = Math.min(j.index||0, Math.max(0, slides.length-1));
-    render();
+    applyIndex(j.index || 0);
+    return j;
   }
   function connect(){
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const url = proto+'//'+location.host+'/ws/live/'+TOKEN+'?role=viewer&vid='+encodeURIComponent(VID)+'&name='+encodeURIComponent(NAME);
+    const url = proto+'//'+location.host+'/ws/live/'+TOKEN
+      +'?role=viewer&vid='+encodeURIComponent(VID)+'&name='+encodeURIComponent(NAME);
+    if (ws) try { ws.close(); } catch(e) {}
     ws = new WebSocket(url);
     ws.onopen = () => { document.getElementById('conn').textContent = 'live'; };
     ws.onclose = () => {
       document.getElementById('conn').textContent = 'reconnecting…';
-      setTimeout(connect, 1200);
+      setTimeout(connect, 1000);
     };
+    ws.onerror = () => { document.getElementById('conn').textContent = 'ws error'; };
     ws.onmessage = (ev) => {
       let msg; try { msg = JSON.parse(ev.data); } catch(e) { return; }
       if (msg.type === 'slide') {
-        idx = Math.min(msg.index||0, Math.max(0, slides.length-1));
-        render();
+        applyIndex(msg.index);
       }
       if (msg.type === 'speak') speak(msg.text);
       if (msg.type === 'online') renderOnline(msg.list);
@@ -85,18 +93,33 @@
     if (!text) return;
     if (ws && ws.readyState === 1) {
       ws.send(JSON.stringify({ type: 'question', text: text }));
-      document.getElementById('q').value = '';
-      document.getElementById('q').placeholder = 'Sent ✓';
     } else {
       fetch('/api/join/'+TOKEN+'/ask', {
         method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ text, name: NAME })
-      }).then(()=>{ document.getElementById('q').value=''; document.getElementById('q').placeholder='Sent'; });
+      });
     }
+    document.getElementById('q').value = '';
+    document.getElementById('q').placeholder = 'Sent ✓';
   }
   document.getElementById('q').addEventListener('keydown', e => { if (e.key==='Enter') sendQ(); });
-  loadSlides().then(connect);
-  setInterval(() => { if (ws && ws.readyState === 1) ws.send(JSON.stringify({type:'ping'})); }, 25000);
+
+  // HTTP poll backup every 1s so slides always track host
+  async function pollIndex(){
+    try {
+      const r = await fetch('/api/live/'+TOKEN+'/state');
+      const j = await r.json();
+      if (j.slides && j.slides.length) slides = j.slides;
+      if (typeof j.index === 'number') applyIndex(j.index);
+      if (!j.active) document.getElementById('conn').textContent = 'ended';
+    } catch(e) {}
+  }
+
+  loadSlides().then(() => {
+    connect();
+    setInterval(pollIndex, 1000);
+    setInterval(() => { if (ws && ws.readyState === 1) ws.send(JSON.stringify({type:'ping'})); }, 20000);
+  });
   </script>
 </body>
 </html>
