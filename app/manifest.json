@@ -1,7 +1,7 @@
 {
-  "name": "Knowsoft Churchgate",
-  "short_name": "Churchgate",
-  "description": "One flock. Every assembly visible. Church management platform connecting Global, Country, State, Group and District churches.",
+  "name": "Knowsoft Eleon",
+  "short_name": "Eleon",
+  "description": "Present your idea smarter.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#000000",
@@ -18,7 +18,7 @@
     },
     {
       "src": "/icons/icon-512.png",
-      "sizes": "512x512",
+      "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
