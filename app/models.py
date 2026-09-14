@@ -108,3 +108,31 @@ class PresentationQANote(SQLModel, table=True):
     question: str = Field(sa_column=Column(Text))
     answer: str = Field(default="", sa_column=Column(Text))
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class LiveSession(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    presentation_id: int = Field(index=True)
+    owner_id: int = Field(index=True)
+    token: str = Field(index=True, unique=True)
+    is_active: bool = Field(default=True)
+    current_index: int = Field(default=0)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class LiveViewer(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    session_id: int = Field(index=True)
+    name: str = Field(default="Guest")
+    status: str = Field(default="pending")  # pending | admitted | denied
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class LiveQuestion(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    session_id: int = Field(index=True)
+    viewer_name: str = Field(default="Guest")
+    text: str = Field(sa_column=Column(Text))
+    answered: bool = Field(default=False)
+    answer: str = Field(default="", sa_column=Column(Text))
+    created_at: datetime = Field(default_factory=datetime.utcnow)

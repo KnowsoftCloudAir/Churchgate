@@ -81,6 +81,13 @@
     .slide-footer{position:absolute;bottom:1rem;left:50%;transform:translateX(-50%);font-size:11px;color:rgba(226,232,240,.55);z-index:30;pointer-events:none;}
     .slide-logo{position:absolute;top:3.5rem;right:1.25rem;height:36px;z-index:30;opacity:.9;}
 
+  
+    .aud-q{position:fixed;left:50%;top:18%;transform:translateX(-50%);z-index:55;max-width:min(560px,92vw);
+      background:rgba(15,23,42,.92);border:1px solid rgba(45,212,191,.45);border-radius:1rem;padding:1rem 1.25rem;
+      box-shadow:0 20px 50px rgba(0,0,0,.45);animation:popQ .45s ease;}
+    @keyframes popQ{from{opacity:0;transform:translateX(-50%) translateY(-12px)}to{opacity:1;transform:translateX(-50%)}}
+    .admit-panel{position:fixed;left:.75rem;top:4rem;z-index:46;width:11rem;max-height:40vh;overflow:auto;
+      background:rgba(15,23,42,.9);border:1px solid rgba(255,255,255,.12);border-radius:.75rem;padding:.5rem;font-size:11px;}
   </style>
 </head>
 <body>
@@ -101,15 +108,21 @@
     </select>
     <div class="ml-auto flex flex-wrap gap-1 items-center">
       <button type="button" onclick="toggleFullscreen()" class="rounded-lg bg-indigo-600 text-white px-2 py-1 text-xs font-semibold">⛶ Fullscreen</button>
+      <button type="button" id="liveBtn" onclick="startLive()" class="rounded-lg bg-emerald-700 text-white px-2 py-1 text-xs font-semibold">🔗 Join link</button>
       <button type="button" id="autoBtn" onclick="toggleAutoplay()" class="rounded-lg bg-violet-700 text-white px-2 py-1 text-xs">▶ Auto-play</button>
       <button type="button" id="musicBtn" onclick="toggleMusic()" class="rounded-lg bg-slate-700 text-white px-2 py-1 text-xs">🎵 Music</button>
-      <select id="musicTrack" class="text-xs rounded-lg px-1 py-1 text-slate-900 max-w-[7rem]">
-        <option value="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3">Helix 1</option>
-        <option value="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3">Helix 2</option>
-        <option value="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3">Helix 3</option>
-        <option value="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3">Helix 8</option>
-        <option value="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-10.mp3">Helix 10</option>
-        <option value="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-16.mp3">Helix 16</option>
+      <select id="musicTrack" class="text-xs rounded-lg px-1 py-1 text-slate-900 max-w-[8rem]" title="Calm background">
+        <option value="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3">Calm 1</option>
+        <option value="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3">Calm 2</option>
+        <option value="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3">Soft piano-like</option>
+        <option value="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-6.mp3">Gentle 6</option>
+        <option value="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3">Ambient 8</option>
+        <option value="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-9.mp3">Relax 9</option>
+        <option value="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-10.mp3">Peaceful 10</option>
+        <option value="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-13.mp3">Quiet 13</option>
+        <option value="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-15.mp3">Soft 15</option>
+        <option value="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-16.mp3">Serene 16</option>
+        <option value="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-17.mp3">Mellow 17</option>
       </select>
       <button type="button" id="micBtn" onclick="toggleListen()" class="rounded-lg bg-slate-600 text-white px-2 py-1 text-xs font-semibold">🎤 Voice</button>
       <button type="button" onclick="readCurrent()" class="rounded-lg bg-white/10 text-white px-2 py-1 text-xs">Read</button>
@@ -212,6 +225,118 @@
       document.body.classList.add('ui-visible');
     }
   });
+
+  
+  /* ---- Live audience ---- */
+  let liveToken = null;
+  async function startLive(){
+    const r = await fetch('/presentations/'+PID+'/live/start', {method:'POST', credentials:'same-origin'});
+    const j = await r.json();
+    if (!j.ok) { alert('Could not start live session'); return; }
+    liveToken = j.token;
+    const full = location.origin + j.url;
+    try { await navigator.clipboard.writeText(full); } catch(e) {}
+    alert('Join link copied:\n' + full + '\n\nShare with audience. Admit them from the left panel.');
+    document.getElementById('liveBtn').textContent = '🔗 Live on';
+    pollLiveHost();
+  }
+  async function syncLiveIndex(){
+    if (!liveToken) return;
+    try {
+      await fetch('/api/live/'+liveToken+'/sync', {
+        method:'POST', credentials:'same-origin',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ index: idx })
+      });
+    } catch(e) {}
+  }
+  async function pollLiveHost(){
+    if (!liveToken) return;
+    try {
+      const r = await fetch('/api/live/'+liveToken+'/state', {credentials:'same-origin'});
+      const j = await r.json();
+      // pending admits
+      let panel = document.getElementById('admitPanel');
+      if (!panel) {
+        panel = document.createElement('div');
+        panel.id = 'admitPanel';
+        panel.className = 'admit-panel chrome';
+        document.body.appendChild(panel);
+      }
+      const pending = j.pending || [];
+      panel.innerHTML = '<p class="text-teal-300 font-semibold mb-1">Waiting to join</p>' +
+        (pending.length ? pending.map(v =>
+          `<div class="flex justify-between gap-1 items-center mb-1 border-b border-white/5 pb-1">
+            <span>${v.name}</span>
+            <span>
+              <button type="button" class="text-emerald-300" onclick="admit(${v.id},true)">✓</button>
+              <button type="button" class="text-rose-300" onclick="admit(${v.id},false)">✕</button>
+            </span>
+          </div>`).join('') : '<p class="text-slate-500">None</p>');
+      // questions on screen
+      const qs = j.questions || [];
+      if (qs.length) {
+        const q = qs[0];
+        showAudienceQuestion(q);
+      }
+    } catch(e) {}
+    if (liveToken) setTimeout(pollLiveHost, 2500);
+  }
+  async function admit(vid, yes){
+    await fetch('/api/live/'+liveToken+'/admit/'+vid, {
+      method:'POST', credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ admit: !!yes })
+    });
+  }
+  let currentAudQ = null;
+  function showAudienceQuestion(q){
+    if (currentAudQ === q.id) return;
+    currentAudQ = q.id;
+    let el = document.getElementById('audQ');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'audQ';
+      el.className = 'aud-q';
+      document.body.appendChild(el);
+    }
+    el.innerHTML = `<p class="text-xs text-teal-300 uppercase tracking-wide">Question from ${escapeHtml(q.name)}</p>
+      <p class="text-lg font-semibold text-white mt-1">${escapeHtml(q.text)}</p>
+      <button type="button" class="mt-3 rounded-lg bg-teal-600 px-3 py-1 text-sm font-bold" onclick="eleonAnswerAudience(${q.id}, ${JSON.stringify(q.text).replace(/"/g,'&quot;')}, ${JSON.stringify(q.name).replace(/"/g,'&quot;')})">Eleon answer</button>
+      <button type="button" class="mt-3 ml-2 rounded-lg bg-slate-700 px-3 py-1 text-sm" onclick="dismissAudQ(${q.id})">Dismiss</button>`;
+  }
+  async function eleonAnswerAudience(qid, text, name){
+    wakeProbe();
+    // ask local eleon with presentation context
+    try {
+      const r = await fetch('/api/eleon/ask', {
+        method:'POST', credentials:'same-origin',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ question: text, presentation_id: PID, slide_index: idx, phase: 'present' })
+      });
+      const j = await r.json();
+      const ans = j.speak || 'I will follow up on that.';
+      await speak(name + ' asked: ' + text + '. ' + ans);
+      await fetch('/api/live/'+liveToken+'/answer/'+qid, {
+        method:'POST', credentials:'same-origin',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ answer: ans })
+      });
+      dismissAudQ(qid);
+    } catch(e) { await speak('Could not answer just now.'); }
+  }
+  async function dismissAudQ(qid){
+    if (liveToken) {
+      await fetch('/api/live/'+liveToken+'/answer/'+qid, {
+        method:'POST', credentials:'same-origin',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ answer: '(dismissed)' })
+      });
+    }
+    currentAudQ = null;
+    const el = document.getElementById('audQ');
+    if (el) el.remove();
+  }
 
   function loadVoices() {
     const sel = document.getElementById('voiceSelect');

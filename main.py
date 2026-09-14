@@ -15,7 +15,7 @@ from fastapi.templating import Jinja2Templates
 from sqlmodel import Session, select
 
 from app.database import create_db_and_tables, get_session, engine
-from app.models import User, UserRole, UserStatus, LoginCode, Presentation, Slide, EvalSession, EvalQuestion, EvalResponse, PresentationQANote
+from app.models import User, UserRole, UserStatus, LoginCode, Presentation, Slide, EvalSession, EvalQuestion, EvalResponse, PresentationQANote, LiveSession, LiveViewer, LiveQuestion
 from app.auth import (
     hash_password, verify_password, create_token,
     require_user, require_admin, user_from_request,
@@ -955,6 +955,207 @@ async def export_pptx(pid: int, user: User = Depends(require_user), session: Ses
         headers={"Content-Disposition": f'attachment; filename="eleon_{pid}.pptx"'},
     )
 
+
+
+
+# ---------- Live join / audience ----------
+@app.post("/presentations/{pid}/live/start")
+async def live_start(pid: int, user: User = Depends(require_user), session: Session = Depends(get_session)):
+    p = session.get(Presentation, pid)
+    if not p or p.owner_id != user.id:
+        raise HTTPException(404)
+    # reuse active or create
+    existing = session.exec(
+        select(LiveSession).where(LiveSession.presentation_id == pid, LiveSession.is_active == True)
+    ).first()
+    if existing:
+        return JSONResponse({"ok": True, "token": existing.token, "url": f"/join/{existing.token}"})
+    token = secrets.token_urlsafe(10)
+    ls = LiveSession(presentation_id=pid, owner_id=user.id, token=token, current_index=0)
+    session.add(ls)
+    session.commit()
+    return JSONResponse({"ok": True, "token": token, "url": f"/join/{token}"})
+
+
+@app.post("/presentations/{pid}/live/stop")
+async def live_stop(pid: int, user: User = Depends(require_user), session: Session = Depends(get_session)):
+    rows = session.exec(select(LiveSession).where(LiveSession.presentation_id == pid, LiveSession.owner_id == user.id)).all()
+    for ls in rows:
+        ls.is_active = False
+        session.add(ls)
+    session.commit()
+    return JSONResponse({"ok": True})
+
+
+@app.post("/api/live/{token}/sync")
+async def live_sync(token: str, request: Request, session: Session = Depends(get_session)):
+    """Host pushes current slide index."""
+    user = user_from_request(request, session)
+    ls = session.exec(select(LiveSession).where(LiveSession.token == token, LiveSession.is_active == True)).first()
+    if not ls:
+        raise HTTPException(404)
+    if not user or ls.owner_id != user.id:
+        raise HTTPException(403)
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+    ls.current_index = int(data.get("index") or 0)
+    session.add(ls)
+    session.commit()
+    return JSONResponse({"ok": True})
+
+
+@app.get("/api/live/{token}/state")
+async def live_state(token: str, session: Session = Depends(get_session)):
+    ls = session.exec(select(LiveSession).where(LiveSession.token == token)).first()
+    if not ls:
+        raise HTTPException(404)
+    p = session.get(Presentation, ls.presentation_id)
+    slides = session.exec(select(Slide).where(Slide.presentation_id == ls.presentation_id).order_by(Slide.position)).all()
+    pending = session.exec(select(LiveViewer).where(LiveViewer.session_id == ls.id, LiveViewer.status == "pending")).all()
+    questions = session.exec(
+        select(LiveQuestion).where(LiveQuestion.session_id == ls.id, LiveQuestion.answered == False).order_by(LiveQuestion.created_at)
+    ).all()
+    return JSONResponse({
+        "ok": True,
+        "active": ls.is_active,
+        "index": ls.current_index,
+        "title": p.title if p else "",
+        "pending": [{"id": v.id, "name": v.name} for v in pending],
+        "questions": [{"id": q.id, "name": q.viewer_name, "text": q.text} for q in questions],
+        "slides": [
+            {
+                "title": s.title, "body": s.body, "extra": s.extra_data, "notes": s.notes,
+                "image": s.image_path, "onlineImage": s.online_image_url,
+                "animIn": s.animation_in, "bg": s.bg_color, "accent": s.accent,
+                "layout": s.layout_style, "icon": s.icon_name, "chartType": s.chart_type,
+                "chartData": s.chart_data, "pattern": getattr(s, "pattern", None) or "gradient_teal",
+                "imageStyle": getattr(s, "image_style", None) or "frame",
+            }
+            for s in slides
+        ],
+    })
+
+
+@app.get("/join/{token}", response_class=HTMLResponse)
+async def join_page(token: str, request: Request, session: Session = Depends(get_session)):
+    ls = session.exec(select(LiveSession).where(LiveSession.token == token)).first()
+    if not ls or not ls.is_active:
+        raise HTTPException(404, "Live session not available")
+    p = session.get(Presentation, ls.presentation_id)
+    return templates.TemplateResponse("presenter/join.html", {
+        "request": request, "token": token, "presentation": p, "live": ls,
+    })
+
+
+@app.post("/join/{token}")
+async def join_request(token: str, name: str = Form(...), session: Session = Depends(get_session)):
+    ls = session.exec(select(LiveSession).where(LiveSession.token == token, LiveSession.is_active == True)).first()
+    if not ls:
+        raise HTTPException(404)
+    v = LiveViewer(session_id=ls.id, name=(name or "Guest").strip()[:80], status="pending")
+    session.add(v)
+    session.commit()
+    session.refresh(v)
+    return RedirectResponse(f"/join/{token}/wait?vid={v.id}", status_code=303)
+
+
+@app.get("/join/{token}/wait", response_class=HTMLResponse)
+async def join_wait(token: str, request: Request, session: Session = Depends(get_session)):
+    vid = request.query_params.get("vid")
+    return templates.TemplateResponse("presenter/join_wait.html", {
+        "request": request, "token": token, "vid": vid,
+    })
+
+
+@app.get("/api/join/{token}/viewer/{vid}")
+async def join_viewer_status(token: str, vid: int, session: Session = Depends(get_session)):
+    ls = session.exec(select(LiveSession).where(LiveSession.token == token)).first()
+    if not ls:
+        raise HTTPException(404)
+    v = session.get(LiveViewer, vid)
+    if not v or v.session_id != ls.id:
+        raise HTTPException(404)
+    return JSONResponse({"ok": True, "status": v.status, "name": v.name, "index": ls.current_index, "active": ls.is_active})
+
+
+@app.post("/api/live/{token}/admit/{vid}")
+async def live_admit(token: str, vid: int, request: Request, session: Session = Depends(get_session)):
+    user = user_from_request(request, session)
+    ls = session.exec(select(LiveSession).where(LiveSession.token == token)).first()
+    if not ls or not user or ls.owner_id != user.id:
+        raise HTTPException(403)
+    v = session.get(LiveViewer, vid)
+    if not v or v.session_id != ls.id:
+        raise HTTPException(404)
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+    v.status = "admitted" if data.get("admit", True) else "denied"
+    session.add(v)
+    session.commit()
+    return JSONResponse({"ok": True, "status": v.status})
+
+
+@app.get("/join/{token}/watch", response_class=HTMLResponse)
+async def join_watch(token: str, request: Request, session: Session = Depends(get_session)):
+    vid = request.query_params.get("vid")
+    ls = session.exec(select(LiveSession).where(LiveSession.token == token, LiveSession.is_active == True)).first()
+    if not ls:
+        raise HTTPException(404)
+    v = session.get(LiveViewer, int(vid)) if vid else None
+    if not v or v.session_id != ls.id or v.status != "admitted":
+        return RedirectResponse(f"/join/{token}/wait?vid={vid}", status_code=303)
+    p = session.get(Presentation, ls.presentation_id)
+    return templates.TemplateResponse("presenter/join_watch.html", {
+        "request": request, "token": token, "vid": vid, "viewer": v, "presentation": p,
+    })
+
+
+@app.post("/api/join/{token}/ask")
+async def join_ask(token: str, request: Request, session: Session = Depends(get_session)):
+    ls = session.exec(select(LiveSession).where(LiveSession.token == token, LiveSession.is_active == True)).first()
+    if not ls:
+        raise HTTPException(404)
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+    text = (data.get("text") or "").strip()[:500]
+    name = (data.get("name") or "Guest").strip()[:80]
+    if not text:
+        raise HTTPException(400, "Empty question")
+    q = LiveQuestion(session_id=ls.id, viewer_name=name, text=text)
+    session.add(q)
+    session.commit()
+    session.refresh(q)
+    return JSONResponse({"ok": True, "id": q.id})
+
+
+@app.post("/api/live/{token}/answer/{qid}")
+async def live_answer_question(token: str, qid: int, request: Request, session: Session = Depends(get_session)):
+    user = user_from_request(request, session)
+    ls = session.exec(select(LiveSession).where(LiveSession.token == token)).first()
+    if not ls or not user or ls.owner_id != user.id:
+        raise HTTPException(403)
+    q = session.get(LiveQuestion, qid)
+    if not q or q.session_id != ls.id:
+        raise HTTPException(404)
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+    answer = (data.get("answer") or "").strip()[:2000]
+    q.answered = True
+    q.answer = answer
+    session.add(q)
+    session.commit()
+    # also store as QA note
+    session.add(PresentationQANote(presentation_id=ls.presentation_id, question=f"{q.viewer_name}: {q.text}", answer=answer))
+    session.commit()
+    return JSONResponse({"ok": True})
 
 
 # ---------- Evaluation & Q&A notes ----------

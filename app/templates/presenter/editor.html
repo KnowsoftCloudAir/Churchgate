@@ -19,6 +19,7 @@
     </form>
     <a href="/presentations/{{ presentation.id }}/qa-notes" class="text-xs border border-white/15 rounded-lg px-2 py-1">Q&A notes</a>
     <a href="/presentations/{{ presentation.id }}/present" class="rounded-xl bg-teal-600 px-3 py-1.5 text-sm font-bold">Present</a>
+    <button type="button" onclick="(async()=>{const r=await fetch('/presentations/{{ presentation.id }}/live/start',{method:'POST',credentials:'same-origin'});const j=await r.json();const u=location.origin+j.url;try{await navigator.clipboard.writeText(u)}catch(e){};alert('Join link:\n'+u);})()" class="text-xs border border-emerald-400/40 text-emerald-200 rounded-lg px-2 py-1 font-semibold">Join link</button>
     <a href="/logout" class="text-xs text-rose-300 border border-rose-500/30 rounded-lg px-2 py-1 ml-auto">Log out</a>
   </header>
 
