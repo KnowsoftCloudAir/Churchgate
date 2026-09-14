@@ -21,3 +21,25 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
 Admin: `admin@eleon.knowsoft` / `Eleon#Admin2026!`
+
+
+## Render.com settings (important)
+
+Do **not** use `gunicorn app:app` (that looks for a WSGI `app` inside the `app` package).
+
+**Build command:**
+```
+pip install -r requirements.txt
+```
+
+**Start command:**
+```
+uvicorn main:app --host 0.0.0.0 --port $PORT
+```
+
+Or:
+```
+uvicorn asgi:app --host 0.0.0.0 --port $PORT
+```
+
+Prefer Python **3.12** if 3.14 causes wheel issues.
