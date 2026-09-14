@@ -1,14 +1,21 @@
 {
-  "name": "Knowsoft Churchgate",
-  "short_name": "Churchgate",
-  "description": "One flock. Every assembly visible. Church management platform connecting Global, Country, State, Group and District churches.",
+  "id": "/",
+  "name": "Eleon — Knowsoft Presentation Partner",
+  "short_name": "Eleon",
+  "description": "Design and present slides with Eleon, your Knowsoft presentation partner.",
   "start_url": "/",
-  "display": "standalone",
-  "background_color": "#000000",
-  "theme_color": "#0B1220",
-  "orientation": "portrait-primary",
   "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
   "lang": "en",
+  "dir": "ltr",
+  "categories": [
+    "productivity",
+    "education",
+    "business"
+  ],
   "icons": [
     {
       "src": "/static/icons/icon-192.png",
@@ -23,10 +30,17 @@
       "purpose": "any"
     },
     {
-      "src": "/static/icons/icon-512-maskable.png",
+      "src": "/static/icons/icon-maskable-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/static/icons/icon-maskable-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
     }
-  ]
+  ],
+  "prefer_related_applications": false
 }
