@@ -399,7 +399,18 @@
   }
 
   function normalizeCmd(q) {
-    return (q||'').toLowerCase().replace(/^eleon[,\s!:]+/i,'').replace(/[?.!]+$/,'').trim();
+    let s = (q||'').toLowerCase();
+    s = s.replace(/[?.!,]+/g,' ').replace(/\s+/g,' ').trim();
+    // strip wake word anywhere at start
+    s = s.replace(/^(hey\s+)?eleon\s+/i,'').replace(/^eleon\s*/i,'').trim();
+    return s;
+  }
+  function cmdMatch(low, words) {
+    // exact or contains key phrases
+    for (const w of words) {
+      if (low === w || low.endsWith(' '+w) || low.startsWith(w+' ') || low.includes(' '+w+' ')) return true;
+    }
+    return words.some(w => low === w);
   }
 
   async function askEleon(qOverride){
@@ -409,36 +420,40 @@
     wakeProbe();
     const low = normalizeCmd(q);
 
-    // Local control commands first (reliable even if server fails)
-    if (['stop','pause','hold'].includes(low) || low === 'eleon stop') {
-      toggleAutoplay(false);
-      stopSpeaking();
-      await speak('Paused.');
+    // Local control commands first (works offline from server Q&A)
+    if (cmdMatch(low, ['stop','pause','hold','stop autoplay','stop auto play'])) {
+      toggleAutoplay(false); stopSpeaking(); await speak('Paused.');
+      document.getElementById('cmd').value=''; return;
+    }
+    if (cmdMatch(low, ['continue','resume','go on'])) {
+      await speak('Continuing.'); toggleAutoplay(true);
+      document.getElementById('cmd').value=''; return;
+    }
+    if (cmdMatch(low, ['start','begin','start autoplay','start auto play','start presentation'])) {
+      idx = 0; phase='present'; await speak('Starting presentation.'); toggleAutoplay(true);
+      document.getElementById('cmd').value=''; return;
+    }
+    if (cmdMatch(low, ['read','read slide','read the slide','read this','read this slide'])) {
+      document.getElementById('cmd').value=''; await readCurrent(); return;
+    }
+    if (cmdMatch(low, ['next','next slide','go next','forward'])) {
+      document.getElementById('cmd').value=''; await go(1); return;
+    }
+    if (cmdMatch(low, ['previous','prev','back','go back','previous slide'])) {
+      document.getElementById('cmd').value=''; await go(-1); return;
+    }
+    const goSlide = low.match(/^(go to )?slide\s*(\d+)$/);
+    if (goSlide) {
       document.getElementById('cmd').value='';
+      await gotoSlide(Math.max(0, parseInt(goSlide[2],10)-1));
       return;
     }
-    if (['continue','resume'].includes(low) || low === 'eleon continue') {
-      await speak('Continuing.');
-      toggleAutoplay(true);
-      document.getElementById('cmd').value='';
-      return;
+    if (low.includes('full screen') || low==='fullscreen') {
+      toggleFullscreen(); document.getElementById('cmd').value=''; return;
     }
-    if (['start','begin','start autoplay','start auto play'].includes(low) || low === 'eleon start') {
-      idx = 0; phase='present';
-      await speak('Starting presentation.');
-      toggleAutoplay(true);
-      document.getElementById('cmd').value='';
-      return;
+    if (low.includes('turn off') || low === 'goodbye') {
+      await speak('Turning off.'); goOff(); document.getElementById('cmd').value=''; return;
     }
-    if (['read','read slide','read the slide'].includes(low)) {
-      document.getElementById('cmd').value='';
-      await readCurrent();
-      return;
-    }
-    if (['next','next slide'].includes(low)) { document.getElementById('cmd').value=''; await go(1); return; }
-    if (['previous','prev','back'].includes(low)) { document.getElementById('cmd').value=''; await go(-1); return; }
-    if (low.includes('full screen') || low==='fullscreen') { toggleFullscreen(); document.getElementById('cmd').value=''; return; }
-    if (low.includes('turn off')) { await speak('Turning off.'); goOff(); return; }
 
     try {
       const r = await fetch('/api/eleon/ask', {
@@ -486,7 +501,13 @@
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) {
       const st = document.getElementById('probeStatus');
-      if (st) st.textContent = 'Voice not supported in this browser — use Chrome and HTTPS';
+      if (st) st.textContent = 'Voice needs Chrome/Edge on HTTPS';
+      alert('Voice commands need Google Chrome or Edge, and the site must be HTTPS.\nClick the padlock and allow Microphone.');
+      voiceEnabled = false;
+      return;
+    }
+    if (!window.isSecureContext) {
+      alert('Microphone only works on HTTPS (or localhost). Open the Render https:// URL.');
       voiceEnabled = false;
       return;
     }
@@ -494,33 +515,47 @@
     recognition = new SR();
     recognition.lang = document.getElementById('langSelect').value || 'en-US';
     recognition.continuous = true;
-    recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
+    recognition.interimResults = true;
+    recognition.maxAlternatives = 3;
+    let lastHeard = '';
+    let lastTs = 0;
     recognition.onresult = (ev) => {
       if (!voiceEnabled) return;
+      let finalText = '';
       for (let i = ev.resultIndex; i < ev.results.length; i++) {
-        if (!ev.results[i].isFinal) continue;
-        const text = (ev.results[i][0].transcript || '').trim();
-        if (!text) continue;
-        document.getElementById('floatProbe').classList.add('listening');
-        wakeProbe();
-        askEleon(text);
+        const t = (ev.results[i][0].transcript || '').trim();
+        if (ev.results[i].isFinal) finalText = t;
       }
+      if (!finalText) return;
+      // debounce duplicates
+      const now = Date.now();
+      if (finalText === lastHeard && now - lastTs < 1500) return;
+      lastHeard = finalText; lastTs = now;
+      document.getElementById('floatProbe').classList.add('listening');
+      wakeProbe();
+      const reply = document.getElementById('eleonReply');
+      if (reply) reply.textContent = 'Heard: ' + finalText;
+      askEleon(finalText);
     };
     recognition.onerror = (ev) => {
-      // restart on recoverable errors
-      if (['no-speech','aborted','network'].includes(ev.error) && voiceEnabled) {
-        setTimeout(() => { try { recognition.start(); } catch(e){} }, 400);
+      console.warn('speech error', ev.error);
+      if (ev.error === 'not-allowed') {
+        voiceEnabled = false;
+        alert('Microphone blocked. Allow mic for this site in the browser address bar.');
+        document.getElementById('floatProbe').classList.remove('listening');
+        return;
+      }
+      if (voiceEnabled && ['no-speech','aborted','network','audio-capture'].includes(ev.error)) {
+        setTimeout(() => { try { recognition.start(); } catch(e){} }, 500);
       }
     };
     recognition.onend = () => {
       if (voiceEnabled && eleonOn) {
-        setTimeout(() => { try { recognition.start(); } catch(e){} }, 300);
+        setTimeout(() => { try { recognition.start(); } catch(e){} }, 250);
       }
     };
-    try { recognition.start(); } catch(e) {
-      setTimeout(() => { try { recognition.start(); } catch(err){} }, 500);
-    }
+    try { recognition.start(); }
+    catch(e) { setTimeout(() => { try { recognition.start(); } catch(err){} }, 400); }
   }
   function stopListen(){
     try { if (recognition) { recognition.onend = null; recognition.stop(); } } catch(e){}
