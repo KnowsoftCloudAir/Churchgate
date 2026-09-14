@@ -19,6 +19,7 @@ DATA_PASSWORD = "Data@12345"
 def _ensure_admin(session: Session, email: str, name: str, church_id: int,
                   role=UserRole.church_admin, password: str = SAMPLE_PASSWORD, stats: bool = False):
     """Create or reset sample sub-admin so login always works."""
+    email = email.strip().lower()
     u = session.exec(select(User).where(User.email == email)).first()
     if u:
         u.hashed_password = get_password_hash(password)
@@ -42,131 +43,6 @@ def _ensure_admin(session: Session, email: str, name: str, church_id: int,
             can_create_churches=True,
             can_approve_members=True,
         ))
-    session.commit()
-
-
-
-def _ensure_district_sample_data(session: Session, district, global_c, country, state, group):
-    """Ensure Allen district has members, 12 weeks of stats, and a sample program."""
-    import itertools
-    if not district:
-        return
-    gcid = global_c.id if global_c else None
-    ccid = country.id if country else None
-    scid = state.id if state else None
-    grid = group.id if group else None
-
-    existing_emails = {
-        m.email for m in session.exec(
-            select(ChurchMember).where(ChurchMember.church_id == district.id)
-        ).all() if m.email
-    }
-    statuses = [
-        ("member", None, None), ("member", None, None), ("member", None, None),
-        ("worker", "usher", None), ("worker", "choir", None), ("worker", "prayer", None),
-        ("worker", "evangelist", None), ("worker", "media", None),
-        ("leader", None, "coordinator"), ("leader", None, "women_leader"),
-        ("leader", None, "children_leader"), ("leader", None, "bible_study_teacher"),
-        ("pastor", None, "group_pastor"),
-    ]
-    sexes = ["brother", "sister"]
-    ages = ["child", "youth", "campus", "adult"]
-    conf = ["saved", "saved", "saved", "restored", "backslidden"]
-    added = 0
-    target = 80
-    mcount = len(session.exec(select(ChurchMember).where(ChurchMember.church_id == district.id)).all())
-    if mcount < target:
-        for i, (fn, ln) in enumerate(itertools.product(FIRST, LAST)):
-            if mcount + added >= target:
-                break
-            email = f"member{i}@knowsoftchurch.sample"
-            if email in existing_emails:
-                continue
-            st, wt, lt = statuses[i % len(statuses)]
-            session.add(ChurchMember(
-                church_id=district.id,
-                global_church_id=gcid,
-                country_church_id=ccid,
-                state_church_id=scid,
-                group_church_id=grid,
-                full_name=f"{fn} {ln}",
-                sex=sexes[i % 2],
-                age_category=ages[i % 4],
-                confession=conf[i % 5],
-                member_since=date.today() - timedelta(days=30 * (i % 24)),
-                whatsapp=f"+23480{1000000 + i}",
-                phone=f"+23480{1000000 + i}",
-                email=email,
-                address=f"{10 + i} Sample Street, Ikeja, Lagos",
-                status=st, worker_type=wt, leader_type=lt,
-                approval_status="approved", is_active=True,
-            ))
-            added += 1
-        session.commit()
-        print(f"✅ District sample members: added {added} (total target {target})")
-    else:
-        print(f"ℹ️ District already has {mcount} members")
-
-    scount = len(session.exec(select(WeeklyStat).where(WeeklyStat.church_id == district.id)).all())
-    if scount < 12:
-        today = date.today()
-        monday = today - timedelta(days=today.weekday())
-        existing_weeks = {
-            str(s.week_start) for s in session.exec(
-                select(WeeklyStat).where(WeeklyStat.church_id == district.id)
-            ).all()
-        }
-        for w in range(12):
-            ws = monday - timedelta(weeks=11 - w)
-            if str(ws) in existing_weeks:
-                continue
-            base = 40 + (w % 5) * 3
-            session.add(WeeklyStat(
-                church_id=district.id, week_start=ws,
-                adult_male=base, adult_female=base + 12,
-                children_boys=10 + w % 4, children_girls=12 + w % 3,
-                youth_male=8 + w % 5, youth_female=9 + w % 4,
-                offering=50000 + w * 2500, tithe=120000 + w * 5000, donation=15000 + w * 1000,
-                newcomers=4 + w % 3, converts=2 + w % 2,
-                counseling=2 + w % 3, members_in_need=3 + w % 4,
-                notes="Knowsoft Church Allen – sample week",
-            ))
-        session.commit()
-        print("✅ District weekly stats ensured (12 weeks)")
-    else:
-        print(f"ℹ️ District already has {scount} weekly stats")
-
-    prog = session.exec(
-        select(SpecialProgram).where(
-            SpecialProgram.church_id == district.id,
-            SpecialProgram.title == "Thanksgiving & Dedication Service",
-        )
-    ).first()
-    if not prog:
-        session.add(SpecialProgram(
-            church_id=district.id,
-            title="Thanksgiving & Dedication Service",
-            description="Special thanksgiving service. All Ikeja Group members invited.",
-            program_date=date.today() + timedelta(days=7),
-            location="Allen Avenue Auditorium",
-            broadcast_to="group",
-            is_active=True,
-            featured_on_home=False,
-        ))
-        session.commit()
-        print("✅ District sample program created")
-
-    district.approval_status = "approved"
-    district.is_active = True
-    district.address = district.address or "12 Allen Avenue, Ikeja, Lagos"
-    district.resident_pastor = district.resident_pastor or "Pastor Ruth Okoro"
-    if getattr(district, "latitude", None) is None:
-        district.latitude = 6.6018
-    if getattr(district, "longitude", None) is None:
-        district.longitude = 3.3515
-    district.country_name = district.country_name or "Nigeria"
-    district.state_name = district.state_name or "Lagos"
-    session.add(district)
     session.commit()
 
 
@@ -285,7 +161,6 @@ def seed_knowsoft_bible_church(session: Session) -> None:
                 description="Special thanksgiving service. All Ikeja Group members invited.",
                 program_date=date.today() + timedelta(days=7),
                 location="Allen Avenue Auditorium",
-                # featured only after general admin approval - leave false on district
                 broadcast_to="group",
                 is_active=True,
             ))
@@ -317,39 +192,33 @@ def seed_knowsoft_bible_church(session: Session) -> None:
             _ensure_admin(session, "allen@knowsoftchurch.org", "Pastor Ruth Okoro", district.id)
             _ensure_admin(session, "data@allen.knowsoftchurch.org", "Bro. James Data Officer",
                           district.id, UserRole.data_officer, DATA_PASSWORD, stats=True)
-            # Always ensure rich district sample data (members, stats, program)
-            _ensure_district_sample_data(session, district, global_c, country, state, group)
-
-        
-            # Global showcase program (General Admin can also toggle featured_on_home)
-            existing_global_prog = session.exec(
-                select(SpecialProgram).where(SpecialProgram.title == "Knowsoft Global Convention")
-            ).first()
-            if not existing_global_prog and global_c:
-                from datetime import date, timedelta
-                gp = SpecialProgram(
-                    church_id=global_c.id,
-                    title="Knowsoft Global Convention",
-                    description="Annual gathering of assemblies — worship, teaching and fellowship.",
-                    program_date=date.today() + timedelta(days=45),
-                    location="International Conference Centre",
-                    broadcast_to="global",
-                    is_active=True,
-                    request_home_display=True,
-                    featured_on_home=False,  # General Admin must approve
-                )
-                session.add(gp)
+            # If members missing, add a few so lists are not empty
+            mcount = len(session.exec(select(ChurchMember).where(ChurchMember.church_id == district.id)).all())
+            if mcount < 5:
+                for i in range(20):
+                    session.add(ChurchMember(
+                        church_id=district.id,
+                        global_church_id=global_c.id if global_c else None,
+                        full_name=f"Sample Member {i+1}",
+                        sex="brother" if i % 2 == 0 else "sister",
+                        age_category="adult",
+                        confession="saved",
+                        email=f"sample.member{i}@knowsoftchurch.sample",
+                        status="member",
+                        approval_status="approved",
+                        is_active=True,
+                    ))
                 session.commit()
-                print("✅ Sample featured Global program for home page")
+                print("✅ Added sample members to district")
 
-            print("✅ Sample sub-admin logins ready:")
+        print("✅ Sample sub-admin logins ready:")
         print("   allen@knowsoftchurch.org / Church@12345  (District – use this first)")
         print("   ikeja@knowsoftchurch.org / Church@12345")
         print("   lagos@knowsoftchurch.org / Church@12345")
         print("   nigeria@knowsoftchurch.org / Church@12345")
         print("   global@knowsoftchurch.org / Church@12345")
         print("   data@allen.knowsoftchurch.org / Data@12345")
-        # Remittance + map coordinates (so global map has markers)
+        # Remittance sample on district
         if district:
             district.tithe_account_name = "Knowsoft Church Allen Tithe"
             district.tithe_account_number = "0123456789"
@@ -362,33 +231,24 @@ def seed_knowsoft_bible_church(session: Session) -> None:
             district.weekly_activities_note = "Sunday 8am & 10am · Wednesday Bible study 6pm · Friday prayer 7pm"
             district.latitude = 6.6018
             district.longitude = 3.3515
-            district.country_name = district.country_name or "Nigeria"
-            district.state_name = district.state_name or "Lagos"
             session.add(district)
-        if global_c:
-            global_c.latitude = 9.0765
-            global_c.longitude = 7.3986
-            global_c.country_name = global_c.country_name or "Nigeria"
-            session.add(global_c)
-        if country:
-            country.latitude = 9.0820
-            country.longitude = 8.6753
-            country.country_name = country.country_name or "Nigeria"
-            session.add(country)
-        if state:
-            state.latitude = 6.5244
-            state.longitude = 3.3792
-            state.country_name = state.country_name or "Nigeria"
-            state.state_name = state.state_name or "Lagos"
-            session.add(state)
-        if group:
-            group.latitude = 6.6018
-            group.longitude = 3.3515
-            group.country_name = group.country_name or "Nigeria"
-            group.state_name = group.state_name or "Lagos"
-            session.add(group)
-        session.commit()
-        print("✅ Map coordinates set on sample churches")
+            if global_c:
+                global_c.latitude = 9.0765
+                global_c.longitude = 7.3986
+                session.add(global_c)
+            if country:
+                country.latitude = 9.0820
+                country.longitude = 8.6753
+                session.add(country)
+            if state:
+                state.latitude = 6.5244
+                state.longitude = 3.3792
+                session.add(state)
+            if group:
+                group.latitude = 6.6018
+                group.longitude = 3.3515
+                session.add(group)
+            session.commit()
     except Exception as e:
         session.rollback()
         print(f"⚠️ Sample seed error: {e}")
