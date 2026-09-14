@@ -386,8 +386,23 @@ async def add_slide(
     title: str = Form("New slide"),
     body: str = Form(""),
     extra_data: str = Form(""),
+    notes: str = Form(""),
     animation_in: str = Form("fade"),
     animation_out: str = Form("fade"),
+    bg_color: str = Form("#0f172a"),
+    accent: str = Form("#14b8a6"),
+    layout_style: str = Form("title_body"),
+    icon_name: str = Form(""),
+    chart_type: str = Form(""),
+    chart_data: str = Form(""),
+    keyword_animation: str = Form("on"),
+    word_animation: str = Form("fadeUp"),
+    online_image_url: str = Form(""),
+    pattern: str = Form("gradient_teal"),
+    image_style: str = Form("frame"),
+    word_emphasis: str = Form("on"),
+    image_path: str = Form(""),
+    images_json: str = Form(""),
     user: User = Depends(require_user),
     session: Session = Depends(get_session),
 ):
@@ -397,8 +412,22 @@ async def add_slide(
     n = len(session.exec(select(Slide).where(Slide.presentation_id == pid)).all())
     session.add(Slide(
         presentation_id=pid, position=n, title=title.strip(),
-        body=body, extra_data=extra_data,
+        body=body, extra_data=extra_data or notes,
+        notes=notes,
         animation_in=animation_in, animation_out=animation_out,
+        bg_color=bg_color, accent=accent,
+        layout_style=layout_style or "title_body",
+        icon_name=icon_name or "",
+        chart_type=chart_type or "",
+        chart_data=chart_data or "",
+        keyword_animation=(keyword_animation=="on"),
+        word_animation=word_animation or "fadeUp",
+        online_image_url=(online_image_url or "").strip() or None,
+        pattern=pattern or "gradient_teal",
+        image_style=image_style or "frame",
+        word_emphasis=(word_emphasis=="on"),
+        image_path=image_path or None,
+        images_json=images_json or None,
     ))
     p.updated_at = datetime.utcnow()
     session.add(p)
@@ -427,6 +456,8 @@ async def update_slide(
     pattern: str = Form("gradient_teal"),
     image_style: str = Form("frame"),
     word_emphasis: str = Form("on"),
+    image_path: str = Form(""),
+    images_json: str = Form(""),
     user: User = Depends(require_user),
     session: Session = Depends(get_session),
 ):
@@ -452,6 +483,13 @@ async def update_slide(
     s.pattern = pattern or "gradient_teal"
     s.image_style = image_style or "frame"
     s.word_emphasis = (word_emphasis == "on")
+    if image_path:
+        s.image_path = image_path
+    if images_json and hasattr(s, "images_json"):
+        s.images_json = images_json
+    elif images_json:
+        # store extra paths in extra_data marker if no column
+        pass
     p.updated_at = datetime.utcnow()
     session.add(s)
     session.add(p)
@@ -546,6 +584,87 @@ async def presentation_settings(
     session.add(p)
     session.commit()
     return RedirectResponse(f"/presentations/{pid}/edit", status_code=303)
+
+
+
+@app.post("/presentations/{pid}/parse-chart-data")
+async def parse_chart_data(
+    pid: int,
+    user: User = Depends(require_user),
+    session: Session = Depends(get_session),
+    datafile: UploadFile = File(...),
+):
+    p = session.get(Presentation, pid)
+    if not p or p.owner_id != user.id:
+        raise HTTPException(404)
+    raw = await datafile.read()
+    fname = (datafile.filename or "").lower()
+    labels, values, rows = [], [], []
+    if fname.endswith((".xlsx", ".xlsm")):
+        try:
+            import openpyxl
+            wb = openpyxl.load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+            ws = wb.active
+            for row in ws.iter_rows(values_only=True):
+                if not row or row[0] is None:
+                    continue
+                lab = str(row[0]).strip()
+                try:
+                    val = float(row[1]) if len(row) > 1 and row[1] is not None else None
+                except (TypeError, ValueError):
+                    continue
+                if lab and val is not None:
+                    labels.append(lab[:40])
+                    values.append(val)
+                    rows.append({"label": lab[:40], "value": val})
+        except Exception as e:
+            raise HTTPException(400, f"Excel read error: {e}")
+    elif fname.endswith((".csv", ".txt")):
+        text = raw.decode("utf-8", errors="ignore")
+        for line in text.splitlines():
+            parts = [x.strip() for x in line.replace(";", ",").split(",")]
+            if len(parts) >= 2:
+                try:
+                    v = float(parts[1])
+                    labels.append(parts[0][:40])
+                    values.append(v)
+                    rows.append({"label": parts[0][:40], "value": v})
+                except ValueError:
+                    continue
+    elif fname.endswith(".pdf"):
+        text = extract_text_from_upload(fname, raw)
+        for m in re.finditer(r"([A-Za-z][A-Za-z0-9 /%\-]{1,30})\s*[:\|\-]?\s*(\d+(?:\.\d+)?)", text):
+            labels.append(m.group(1).strip()[:40])
+            values.append(float(m.group(2)))
+            rows.append({"label": m.group(1).strip()[:40], "value": float(m.group(2))})
+            if len(labels) >= 20:
+                break
+    else:
+        raise HTTPException(400, "Upload .xlsx, .csv, or .pdf")
+    if not labels:
+        raise HTTPException(400, "No numeric data found")
+    return JSONResponse({"labels": labels, "values": values, "rows": rows})
+
+
+@app.post("/presentations/{pid}/slides/upload-temp-image")
+async def upload_temp_image(
+    pid: int,
+    image: UploadFile = File(...),
+    user: User = Depends(require_user),
+    session: Session = Depends(get_session),
+):
+    p = session.get(Presentation, pid)
+    if not p or p.owner_id != user.id:
+        raise HTTPException(404)
+    data = await image.read()
+    if not data or len(data) > 8_000_000:
+        raise HTTPException(400, "Invalid image")
+    ext = Path(image.filename or "img.png").suffix.lower() or ".png"
+    if ext not in (".png", ".jpg", ".jpeg", ".webp", ".gif"):
+        ext = ".png"
+    fname = f"tmp_{pid}_{secrets.token_hex(6)}{ext}"
+    (UPLOAD_SLIDES / fname).write_bytes(data)
+    return JSONResponse({"url": f"/static/uploads/slides/{fname}"})
 
 
 @app.post("/presentations/{pid}/chart-from-file")

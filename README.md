@@ -43,3 +43,14 @@ uvicorn asgi:app --host 0.0.0.0 --port $PORT
 ```
 
 Prefer Python **3.12** if 3.14 causes wheel issues.
+
+## Slide Studio enhancements (2026-09)
+
+- **Live preview** next to the editor: transitions, animations, word emphasis, picture designs and professional Chart.js charts update in real time.
+- **Chart data extraction**: upload Excel/CSV/PDF → structured table is shown → choose chart type + number rounding → apply to the slide under edition.
+- **Multi-picture upload**: one or several images; thumbnails; primary selection; picture redesign (frame, circle, polaroid, glow, hex, …) applied in the live preview.
+- **Workflow**: edit a draft → **Save slide → Finished** moves it to the left panel and clears the edit form for the next slide. Use **Edit** on any finished slide to load it back.
+- New APIs: `POST /presentations/{id}/parse-chart-data`, `POST /presentations/{id}/slides/upload-temp-image`.
+- Slide model: `images_json` for multiple image paths.
+
+Admin / demo logins remain as documented above.
