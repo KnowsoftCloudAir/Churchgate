@@ -22,6 +22,11 @@ class User(SQLModel, table=True):
     login_number: Optional[str] = Field(default=None, index=True, unique=True)  # approved login number
     access_expires_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    # Subscription (Churchgate-style)
+    sub_status: str = Field(default="trial_12h")  # trial_12h | free_month | active | expired | pending_payment
+    sub_ends_at: Optional[datetime] = None
+    free_month_used: bool = Field(default=False)
+    sub_plan: str = Field(default="trial")
 
 class LoginCode(SQLModel, table=True):
     """Admin-issued access codes: week / month / year."""
@@ -143,3 +148,36 @@ class AppSetting(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     key: str = Field(index=True, unique=True)
     value: str = Field(default="", sa_column=Column(Text))
+
+
+class SubscriptionSettings(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    title: str = Field(default="Eleon subscription")
+    currency: str = Field(default="NGN")
+    monthly_price: float = Field(default=3000.0)
+    annual_price: float = Field(default=30000.0)
+    instructions: str = Field(default="Pay to the account below and upload evidence. Admin will activate your plan.", sa_column=Column(Text))
+    bank_name: str = Field(default="")
+    account_name: str = Field(default="")
+    account_number: str = Field(default="")
+    other_details: str = Field(default="", sa_column=Column(Text))
+    is_active: bool = Field(default=True)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class UserSubscription(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True)
+    plan: str = Field(default="monthly")  # monthly | annual | free_month | trial_12h
+    amount: float = Field(default=0.0)
+    currency: str = Field(default="NGN")
+    duration_days: int = Field(default=30)
+    status: str = Field(default="pending")  # pending | active | expired | rejected
+    payment_reference: str = Field(default="")
+    evidence_path: Optional[str] = None
+    starts_at: Optional[datetime] = None
+    ends_at: Optional[datetime] = None
+    confirmed_at: Optional[datetime] = None
+    confirmed_by: Optional[int] = None
+    note: str = Field(default="", sa_column=Column(Text))
+    created_at: datetime = Field(default_factory=datetime.utcnow)

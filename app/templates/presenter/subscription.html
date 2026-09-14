@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Subscription — Eleon</title>
+  <link rel="icon" href="/static/icons/icon-192.png">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <header class="border-b border-white/10 px-4 py-3 flex items-center gap-3">
+    <img src="/static/icons/icon-192.png" class="h-9 w-9 rounded-xl" alt="Eleon">
+    <div>
+      <p class="text-xs text-teal-300 uppercase tracking-widest">Knowsoft Eleon</p>
+      <h1 class="font-bold">My subscription</h1>
+    </div>
+    <a href="/dashboard" class="ml-auto text-sm text-teal-300">Dashboard</a>
+    <a href="/logout" class="text-sm text-rose-300">Log out</a>
+  </header>
+  <main class="max-w-3xl mx-auto px-4 py-8 space-y-6">
+    {% if request.query_params.get('expired') %}
+    <div class="rounded-2xl border border-rose-500/40 bg-rose-950/40 p-4 text-rose-100 text-sm">
+      Your access has expired. Renew below to continue using Eleon.
+    </div>
+    {% endif %}
+    {% if request.query_params.get('sent') %}
+    <div class="rounded-2xl border border-emerald-500/40 bg-emerald-950/30 p-4 text-emerald-100 text-sm">
+      Payment request submitted. Admin will confirm and extend your access.
+    </div>
+    {% endif %}
+
+    <div class="rounded-3xl border border-teal-500/30 bg-gradient-to-br from-slate-900 to-teal-950/40 p-6">
+      <p class="text-xs uppercase tracking-widest text-teal-300 mb-1">Status</p>
+      <p class="text-2xl font-black {% if active %}text-emerald-300{% else %}text-rose-300{% endif %}">
+        {{ user.sub_status }} {% if active %}· Active{% else %}· Off{% endif %}
+      </p>
+      <p class="text-sm text-slate-400 mt-2">Plan: <span class="text-white">{{ user.sub_plan }}</span></p>
+      <p class="text-sm text-slate-400">Ends: <span class="text-white">{{ user.sub_ends_at or '—' }}</span></p>
+      {% if remaining_sec is defined and remaining_sec %}
+      <p class="mt-3 text-amber-200 text-sm font-semibold" id="countdown" data-sec="{{ remaining_sec }}">Time left: …</p>
+      {% endif %}
+      <div class="mt-4 h-2 rounded-full bg-slate-800 overflow-hidden">
+        <div id="bar" class="h-full bg-gradient-to-r from-teal-500 to-amber-400 transition-all" style="width:100%"></div>
+      </div>
+      <p class="text-xs text-slate-500 mt-3">
+        New accounts get <b>12 hours free</b>, then a complimentary <b>1-month</b> period once.
+        After that, renew monthly or annually to keep service on.
+      </p>
+    </div>
+
+    <div class="grid sm:grid-cols-2 gap-4">
+      <div class="rounded-2xl border border-white/10 p-5">
+        <p class="text-lg font-bold text-teal-200">Monthly</p>
+        <p class="text-3xl font-black mt-1">{{ settings.currency }} {{ '%.0f'|format(settings.monthly_price) }}</p>
+        <p class="text-xs text-slate-500 mt-1">30 days access</p>
+      </div>
+      <div class="rounded-2xl border border-amber-500/30 p-5">
+        <p class="text-lg font-bold text-amber-200">Annual</p>
+        <p class="text-3xl font-black mt-1">{{ settings.currency }} {{ '%.0f'|format(settings.annual_price) }}</p>
+        <p class="text-xs text-slate-500 mt-1">365 days access</p>
+      </div>
+    </div>
+
+    <div class="rounded-2xl border border-white/10 p-5 space-y-2 text-sm">
+      <p class="font-semibold text-teal-200">Pay to renew</p>
+      <p>{{ settings.bank_name }} · {{ settings.account_name }} · {{ settings.account_number }}</p>
+      <p class="text-slate-400 whitespace-pre-wrap">{{ settings.instructions }}</p>
+      {% if settings.other_details %}<p class="text-slate-500">{{ settings.other_details }}</p>{% endif %}
+    </div>
+
+    <form method="post" action="/subscription/request" enctype="multipart/form-data" class="rounded-2xl border border-white/10 p-5 space-y-3">
+      <p class="font-semibold">Request renewal</p>
+      <select name="plan" class="w-full rounded-xl px-3 py-2 text-slate-900">
+        <option value="monthly">Monthly</option>
+        <option value="annual">Annual</option>
+      </select>
+      <input name="payment_reference" placeholder="Payment reference / transfer ID" class="w-full rounded-xl px-3 py-2 text-slate-900">
+      <label class="text-xs text-slate-400">Evidence (screenshot)</label>
+      <input type="file" name="evidence" accept="image/*,.pdf" class="text-sm w-full">
+      <button class="w-full rounded-xl bg-teal-600 py-2.5 font-bold">Submit for approval</button>
+    </form>
+
+    <div class="rounded-2xl border border-white/10 p-4">
+      <p class="text-sm font-semibold mb-2">History</p>
+      {% for h in history %}
+      <div class="text-xs flex justify-between border-b border-white/5 py-1.5">
+        <span>{{ h.plan }} · {{ h.status }} · {{ h.currency }} {{ h.amount }}</span>
+        <span class="text-slate-500">{{ h.created_at }}</span>
+      </div>
+      {% else %}
+      <p class="text-slate-500 text-sm">No history yet</p>
+      {% endfor %}
+    </div>
+  </main>
+  <script>
+  (function(){
+    const el = document.getElementById('countdown');
+    const bar = document.getElementById('bar');
+    if (!el) return;
+    let sec = parseInt(el.dataset.sec || '0', 10);
+    const total = sec || 1;
+    function tick(){
+      if (sec < 0) { el.textContent = 'Expired'; if(bar) bar.style.width='0%'; return; }
+      const d = Math.floor(sec/86400), h = Math.floor((sec%86400)/3600), m = Math.floor((sec%3600)/60), s = sec%60;
+      el.textContent = 'Time left: ' + (d?d+'d ':'') + h + 'h ' + m + 'm ' + s + 's';
+      if (bar) bar.style.width = Math.max(0, Math.min(100, (sec/total)*100)) + '%';
+      sec--;
+      setTimeout(tick, 1000);
+    }
+    tick();
+  })();
+  </script>
+</body>
+</html>

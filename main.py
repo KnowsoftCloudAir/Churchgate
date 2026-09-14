@@ -45,6 +45,27 @@ DURATION_DAYS = {"week": 7, "month": 30, "year": 365}
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     create_db_and_tables()
+
+    # migrate new subscription columns on sqlite
+    try:
+        from sqlalchemy import text
+        with engine.begin() as conn:
+            if "sqlite" in str(engine.url):
+                cols = [r[1] for r in conn.execute(text("PRAGMA table_info(user)")).fetchall()]
+                alters = []
+                if "sub_status" not in cols:
+                    alters.append("ALTER TABLE user ADD COLUMN sub_status VARCHAR DEFAULT 'trial_12h'")
+                if "sub_ends_at" not in cols:
+                    alters.append("ALTER TABLE user ADD COLUMN sub_ends_at DATETIME")
+                if "free_month_used" not in cols:
+                    alters.append("ALTER TABLE user ADD COLUMN free_month_used BOOLEAN DEFAULT 0")
+                if "sub_plan" not in cols:
+                    alters.append("ALTER TABLE user ADD COLUMN sub_plan VARCHAR DEFAULT 'trial'")
+                for a in alters:
+                    conn.execute(text(a))
+    except Exception as e:
+        print("migrate warn:", e)
+
     from sqlmodel import Session as S
     with S(engine) as session:
         # --- Admin (always reset password so login works) ---
@@ -76,6 +97,10 @@ async def lifespan(app: FastAPI):
                 status=UserStatus.approved,
                 login_number="EL-DEMO001",
                 access_expires_at=datetime.utcnow() + timedelta(days=365),
+                sub_status="active",
+                sub_ends_at=datetime.utcnow() + timedelta(days=365),
+                free_month_used=True,
+                sub_plan="annual",
             )
             session.add(demo)
             session.commit()
@@ -263,12 +288,17 @@ async def register_post(
         return templates.TemplateResponse("auth/register.html", {
             "request": request, "error": "Email already registered",
         }, status_code=400)
+    now = datetime.utcnow()
     user = User(
         email=email,
         full_name=full_name.strip(),
         hashed_password=hash_password(password),
         role=UserRole.presenter,
         status=UserStatus.pending,
+        sub_status="trial_12h",
+        sub_ends_at=now + timedelta(hours=12),
+        free_month_used=False,
+        sub_plan="trial_12h",
     )
     # Optional: redeem access code at registration
     code_row = None
@@ -1715,6 +1745,157 @@ async def api_translate_text(request: Request):
         return JSONResponse({"ok": True, "text": " ".join(out)})
     except Exception as e:
         return JSONResponse({"ok": False, "text": text, "error": str(e)})
+
+
+
+# ---------- Subscription ----------
+@app.get("/subscription", response_class=HTMLResponse)
+async def subscription_page(request: Request, session: Session = Depends(get_session)):
+    user = user_from_request(request, session)
+    if not user:
+        return RedirectResponse("/login", status_code=303)
+    from app.auth import ensure_user_subscription, user_sub_active
+    user = ensure_user_subscription(session, user)
+    settings = session.exec(select(SubscriptionSettings)).first()
+    if not settings:
+        settings = SubscriptionSettings()
+        session.add(settings)
+        session.commit()
+        session.refresh(settings)
+    history = session.exec(
+        select(UserSubscription).where(UserSubscription.user_id == user.id).order_by(UserSubscription.created_at.desc())
+    ).all()
+    remaining = None
+    if user.sub_ends_at:
+        remaining = max(0, int((user.sub_ends_at - datetime.utcnow()).total_seconds()))
+    return templates.TemplateResponse("presenter/subscription.html", {
+        "request": request, "user": user, "settings": settings, "history": history,
+        "active": user_sub_active(user), "remaining_sec": remaining,
+        "expired": request.query_params.get("expired") == "1",
+    })
+
+
+@app.post("/subscription/request")
+async def subscription_request(
+    request: Request,
+    plan: str = Form("monthly"),
+    payment_reference: str = Form(""),
+    note: str = Form(""),
+    session: Session = Depends(get_session),
+    evidence: UploadFile = File(None),
+):
+    user = user_from_request(request, session)
+    if not user:
+        return RedirectResponse("/login", status_code=303)
+    settings = session.exec(select(SubscriptionSettings)).first() or SubscriptionSettings()
+    plan = plan if plan in ("monthly", "annual") else "monthly"
+    amount = settings.monthly_price if plan == "monthly" else settings.annual_price
+    days = 30 if plan == "monthly" else 365
+    path = None
+    if evidence and getattr(evidence, "filename", None):
+        data = await evidence.read()
+        if data and len(data) < 5_000_000:
+            ext = (evidence.filename.rsplit(".", 1)[-1] or "jpg").lower()[:4]
+            name = f"pay_{user.id}_{secrets.token_hex(4)}.{ext}"
+            dest = UPLOAD_SLIDES / name
+            dest.write_bytes(data)
+            path = f"/static/uploads/slides/{name}"
+    sub = UserSubscription(
+        user_id=user.id, plan=plan, amount=amount, currency=settings.currency or "NGN",
+        duration_days=days, status="pending", payment_reference=payment_reference.strip()[:120],
+        evidence_path=path, note=note.strip()[:500],
+    )
+    user.sub_status = "pending_payment"
+    session.add(sub)
+    session.add(user)
+    session.commit()
+    return RedirectResponse("/subscription?sent=1", status_code=303)
+
+
+@app.get("/admin/subscriptions", response_class=HTMLResponse)
+async def admin_subscriptions(request: Request, user: User = Depends(require_admin), session: Session = Depends(get_session)):
+    settings = session.exec(select(SubscriptionSettings)).first()
+    if not settings:
+        settings = SubscriptionSettings()
+        session.add(settings)
+        session.commit()
+        session.refresh(settings)
+    pending = session.exec(select(UserSubscription).where(UserSubscription.status == "pending").order_by(UserSubscription.created_at.desc())).all()
+    recent = session.exec(select(UserSubscription).order_by(UserSubscription.created_at.desc()).limit(50)).all()
+    users = {u.id: u for u in session.exec(select(User)).all()}
+    return templates.TemplateResponse("admin/subscriptions.html", {
+        "request": request, "user": user, "settings": settings,
+        "pending": pending, "recent": recent, "users": users,
+    })
+
+
+@app.post("/admin/subscriptions/settings")
+async def admin_sub_settings(
+    user: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+    title: str = Form("Eleon subscription"),
+    currency: str = Form("NGN"),
+    monthly_price: float = Form(3000),
+    annual_price: float = Form(30000),
+    bank_name: str = Form(""),
+    account_name: str = Form(""),
+    account_number: str = Form(""),
+    instructions: str = Form(""),
+    other_details: str = Form(""),
+):
+    settings = session.exec(select(SubscriptionSettings)).first()
+    if not settings:
+        settings = SubscriptionSettings()
+    settings.title = title
+    settings.currency = currency
+    settings.monthly_price = monthly_price
+    settings.annual_price = annual_price
+    settings.bank_name = bank_name
+    settings.account_name = account_name
+    settings.account_number = account_number
+    settings.instructions = instructions
+    settings.other_details = other_details
+    settings.updated_at = datetime.utcnow()
+    session.add(settings)
+    session.commit()
+    return RedirectResponse("/admin/subscriptions", status_code=303)
+
+
+@app.post("/admin/subscriptions/{sid}/confirm")
+async def admin_sub_confirm(sid: int, user: User = Depends(require_admin), session: Session = Depends(get_session)):
+    sub = session.get(UserSubscription, sid)
+    if not sub:
+        raise HTTPException(404)
+    target = session.get(User, sub.user_id)
+    if not target:
+        raise HTTPException(404)
+    now = datetime.utcnow()
+    base = target.sub_ends_at if target.sub_ends_at and target.sub_ends_at > now else now
+    ends = base + timedelta(days=sub.duration_days or 30)
+    sub.status = "active"
+    sub.starts_at = now
+    sub.ends_at = ends
+    sub.confirmed_at = now
+    sub.confirmed_by = user.id
+    target.sub_status = "active"
+    target.sub_plan = sub.plan
+    target.sub_ends_at = ends
+    session.add(sub)
+    session.add(target)
+    session.commit()
+    return RedirectResponse("/admin/subscriptions", status_code=303)
+
+
+@app.post("/admin/subscriptions/{sid}/reject")
+async def admin_sub_reject(sid: int, user: User = Depends(require_admin), session: Session = Depends(get_session)):
+    sub = session.get(UserSubscription, sid)
+    if not sub:
+        raise HTTPException(404)
+    sub.status = "rejected"
+    session.add(sub)
+    session.commit()
+    return RedirectResponse("/admin/subscriptions", status_code=303)
+
 
 
 # ---------- Admin ----------
