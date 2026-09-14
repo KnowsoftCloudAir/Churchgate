@@ -80,6 +80,7 @@ class EvalSession(SQLModel, table=True):
     title: str = Field(default="Training evaluation")
     token: str = Field(index=True, unique=True)
     is_active: bool = Field(default=True)
+    allow_certificates: bool = Field(default=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 

@@ -1098,13 +1098,14 @@ async def ws_live(websocket: WebSocket, token: str):
                     "name": name if role != "host" else (msg.get("name") or "Presenter"),
                 })
             elif mtype == "voice_chunk":
-                # base64 audio from presenter → all viewers
-                if role == "host":
-                    await live_hub.broadcast(token, {
-                        "type": "voice_chunk",
-                        "audio": msg.get("audio") or "",
-                        "mime": msg.get("mime") or "audio/webm",
-                    }, skip=websocket)
+                # real-time voice: host and attendees (presenter language only — no translate)
+                await live_hub.broadcast(token, {
+                    "type": "voice_chunk",
+                    "audio": msg.get("audio") or "",
+                    "mime": msg.get("mime") or "audio/webm",
+                    "from": name if role != "host" else "Presenter",
+                    "role": role,
+                }, skip=websocket)
             elif mtype == "end" and role == "host":
                 with S(engine) as sess:
                     ls = sess.exec(select(LiveSession).where(LiveSession.token == token)).first()
@@ -1533,7 +1534,26 @@ async def evaluate_submit(token: str, request: Request, session: Session = Depen
     session.commit()
     return templates.TemplateResponse("presenter/evaluate_done.html", {
         "request": request, "eval": ev, "name": name, "score": round(pct, 1), "token": token,
+        "allow_certificates": getattr(ev, "allow_certificates", True),
     })
+
+
+
+@app.post("/presentations/{pid}/evaluation/{eid}/cert-policy")
+async def eval_cert_policy(
+    pid: int, eid: int,
+    allow_certificates: str = Form("on"),
+    user: User = Depends(require_user),
+    session: Session = Depends(get_session),
+):
+    ev = session.get(EvalSession, eid)
+    p = session.get(Presentation, pid)
+    if not ev or not p or p.owner_id != user.id or ev.presentation_id != pid:
+        raise HTTPException(404)
+    ev.allow_certificates = allow_certificates in ("on", "true", "1", "yes")
+    session.add(ev)
+    session.commit()
+    return RedirectResponse(f"/presentations/{pid}/evaluation/{eid}", status_code=303)
 
 
 @app.get("/evaluate/{token}/certificate")
@@ -1542,6 +1562,10 @@ async def evaluate_certificate(token: str, request: Request, session: Session = 
     ev = session.exec(select(EvalSession).where(EvalSession.token == token)).first()
     if not ev:
         raise HTTPException(404)
+    # Link users need presenter permission; presenter (owner) always can open with ?host=1
+    host_dl = request.query_params.get("host") == "1"
+    if not host_dl and not getattr(ev, "allow_certificates", True):
+        raise HTTPException(403, "Certificates are disabled for this evaluation")
     p = session.get(Presentation, ev.presentation_id)
     return templates.TemplateResponse("presenter/certificate.html", {
         "request": request, "name": name, "eval": ev, "presentation": p,
