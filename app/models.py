@@ -77,6 +77,12 @@ class Slide(SQLModel, table=True):
     image_style: str = Field(default="frame")
     word_emphasis: bool = Field(default=True)
     images_json: Optional[str] = Field(default=None, sa_column=Column(Text))  # JSON list of image paths
+    font_family: str = Field(default="Inter")
+    font_size: str = Field(default="md")  # sm | md | lg | xl
+    font_color: str = Field(default="#e2e8f0")
+    backdrop_style: str = Field(default="none")  # none | cover | soft | torn_paper | vignette | blur | duotone_bg
+    chart_effect: str = Field(default="grow")  # grow | race | 3d | none
+    show_data_table: bool = Field(default=False)
 
 
 class EvalSession(SQLModel, table=True):

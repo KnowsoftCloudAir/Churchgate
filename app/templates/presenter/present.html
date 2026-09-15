@@ -99,6 +99,45 @@
   
     .react-float{position:fixed;bottom:6rem;font-size:1.6rem;animation:floatUp 2.2s ease forwards;pointer-events:none;z-index:60;}
     @keyframes floatUp{0%{opacity:1;transform:translateY(0)}100%{opacity:0;transform:translateY(-100px)}}
+  
+    .img-torn {
+      clip-path: polygon(0% 3%, 2% 0%, 8% 2%, 15% 0%, 22% 3%, 30% 1%, 38% 3%, 45% 0%, 55% 2%, 62% 0%, 70% 3%, 78% 1%, 85% 3%, 92% 0%, 100% 2%, 100% 97%, 98% 100%, 90% 98%, 82% 100%, 75% 97%, 68% 100%, 60% 98%, 52% 100%, 45% 97%, 38% 100%, 30% 98%, 22% 100%, 15% 97%, 8% 100%, 0% 98%);
+      filter: drop-shadow(0 12px 24px rgba(0,0,0,.5));
+    }
+    .backdrop-torn {
+      position:absolute; inset:0; background-size:cover; background-position:center;
+      clip-path: polygon(0% 2%, 3% 0%, 10% 2%, 18% 0%, 28% 2%, 40% 0%, 52% 2%, 65% 0%, 78% 2%, 90% 0%, 100% 2%, 100% 98%, 95% 100%, 85% 98%, 75% 100%, 62% 98%, 50% 100%, 38% 98%, 25% 100%, 12% 98%, 0% 100%);
+      opacity:.55; filter: saturate(1.1) contrast(1.05);
+    }
+    .backdrop-cover { position:absolute; inset:0; background-size:cover; background-position:center; opacity:.45; }
+    .backdrop-soft { position:absolute; inset:0; background-size:cover; background-position:center; opacity:.35; filter:blur(2px); }
+    .backdrop-vignette { position:absolute; inset:0; background-size:cover; background-position:center; opacity:.5;
+      mask-image: radial-gradient(ellipse at center, black 40%, transparent 75%);
+      -webkit-mask-image: radial-gradient(ellipse at center, black 40%, transparent 75%);
+    }
+    .backdrop-blur { position:absolute; inset:0; background-size:cover; background-position:center; opacity:.4; filter:blur(8px) brightness(.7); }
+    .backdrop-duotone_bg { position:absolute; inset:0; background-size:cover; background-position:center; opacity:.5;
+      filter: grayscale(1) contrast(1.15) sepia(.35) hue-rotate(140deg); }
+    .slide-content-layer { position:relative; z-index:5; }
+    .data-table-slide { width:100%; border-collapse:collapse; font-size:clamp(11px,1.6vw,15px); margin-top:.75rem; }
+    .data-table-slide th, .data-table-slide td { border:1px solid rgba(255,255,255,.12); padding:.4rem .65rem; text-align:left; }
+    .data-table-slide th { background:rgba(20,184,166,.2); color:#5eead4; }
+    .race-wrap { display:flex; flex-direction:column; gap:.55rem; margin-top:1rem; }
+    .race-row { display:grid; grid-template-columns:7rem 1fr 3.5rem; gap:.5rem; align-items:center; }
+    .race-label { font-size:clamp(11px,1.5vw,14px); color:#e2e8f0; truncate; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .race-track { height:1.1rem; background:rgba(255,255,255,.08); border-radius:999px; overflow:hidden; }
+    .race-bar { height:100%; border-radius:999px; width:0%; transition:width 1.4s cubic-bezier(.22,1,.36,1); background:linear-gradient(90deg,var(--accent,#14b8a6),#6366f1); box-shadow:0 0 16px color-mix(in srgb, var(--accent,#14b8a6) 50%, transparent); }
+    .race-val { font-weight:800; font-size:clamp(12px,1.6vw,15px); color:#fff; text-align:right; }
+    .chart-3d-wrap { perspective:900px; }
+    .chart-3d-wrap canvas { transform: rotateX(12deg) scaleY(1.02); transform-origin:center bottom; filter: drop-shadow(0 18px 20px rgba(0,0,0,.45)); }
+    .multi-strip { display:flex; gap:.4rem; flex-wrap:wrap; margin-top:.75rem; justify-content:center; }
+    .multi-strip img { height:72px; width:auto; max-width:30%; object-fit:cover; border-radius:.5rem; border:1px solid rgba(255,255,255,.15); }
+    .brand-chip { display:inline-flex; align-items:center; gap:.35rem; font-size:10px; letter-spacing:.12em; text-transform:uppercase; opacity:.85; }
+    .font-sm { font-size: clamp(0.85rem, 1.4vw, 1rem); }
+    .font-md { font-size: clamp(1rem, 1.8vw, 1.2rem); }
+    .font-lg { font-size: clamp(1.15rem, 2.2vw, 1.45rem); }
+    .font-xl { font-size: clamp(1.3rem, 2.8vw, 1.75rem); }
+
   </style>
   <link rel="manifest" href="/manifest.webmanifest">
   <meta name="theme-color" content="#0f172a">
@@ -206,7 +245,14 @@
       wordAnim: {{ (s.word_animation or 'fadeUp')|tojson }},
       pattern: {{ (s.pattern or 'gradient_teal')|tojson }},
       imageStyle: {{ (s.image_style or 'frame')|tojson }},
-      wordEmphasis: {{ 'true' if s.word_emphasis else 'false' }}
+      wordEmphasis: {{ 'true' if s.word_emphasis else 'false' }},
+      imagesJson: {{ (s.images_json or '')|tojson }},
+      fontFamily: {{ (s.font_family or 'Inter')|tojson }},
+      fontSize: {{ (s.font_size or 'md')|tojson }},
+      fontColor: {{ (s.font_color or '#e2e8f0')|tojson }},
+      backdropStyle: {{ (s.backdrop_style or 'none')|tojson }},
+      chartEffect: {{ (s.chart_effect or 'grow')|tojson }},
+      showDataTable: {{ 'true' if s.show_data_table else 'false' }}
     }{% if not loop.last %},{% endif %}
     {% endfor %}
   ];
@@ -531,58 +577,189 @@
     (s.chartData||'').split(',').forEach(p=>{const [a,b]=p.split(':'); if(a&&b){labels.push(a.trim());values.push(Number(b));}});
     return labels.length?{labels,values}:null;
   }
-  function imgUrl(s){ return s.onlineImage || s.image || ''; }
+  function imgUrl(s){
+    if (s.onlineImage) return s.onlineImage;
+    if (s.image) return s.image;
+    // multi images from imagesJson
+    const imgs = slideImages(s);
+    return imgs[0] || '';
+  }
+  function slideImages(s){
+    const out = [];
+    if (s.imagesJson) {
+      try {
+        const arr = typeof s.imagesJson === 'string' ? JSON.parse(s.imagesJson) : s.imagesJson;
+        if (Array.isArray(arr)) arr.forEach(u => { if (u) out.push(u); });
+      } catch(e) {}
+    }
+    if (s.image && !out.includes(s.image)) out.unshift(s.image);
+    if (s.onlineImage && !out.includes(s.onlineImage)) out.push(s.onlineImage);
+    return out;
+  }
   function imgClass(s){
     const st = s.imageStyle || 'frame';
     if (st==='frame') return 'img-frame rounded-xl max-h-64 object-cover w-full';
+    if (st==='torn') return 'img-torn max-h-64 object-cover w-full';
     return 'img-' + st + ' max-h-64 object-cover';
+  }
+  function fontStyle(s){
+    const fam = s.fontFamily || 'Inter';
+    const col = s.fontColor || '#e2e8f0';
+    return `font-family:'${fam}',system-ui,sans-serif;color:${col};`;
+  }
+  function fontSizeClass(s){
+    return 'font-' + (s.fontSize || 'md');
+  }
+  function raceHtml(s, parsed){
+    if (!parsed) return '';
+    const max = Math.max(...parsed.values, 1);
+    const accent = s.accent || '#14b8a6';
+    let h = `<div class="race-wrap" style="--accent:${accent}">`;
+    parsed.labels.forEach((lab,i) => {
+      const pct = Math.round((parsed.values[i] / max) * 100);
+      h += `<div class="race-row"><div class="race-label">${lab}</div><div class="race-track"><div class="race-bar" data-pct="${pct}"></div></div><div class="race-val">${parsed.values[i]}</div></div>`;
+    });
+    h += '</div>';
+    return h;
+  }
+  function tableHtml(parsed, accent){
+    if (!parsed) return '';
+    let h = '<table class="data-table-slide"><thead><tr><th>Label</th><th>Value</th></tr></thead><tbody>';
+    parsed.labels.forEach((lab,i) => {
+      h += `<tr><td>${lab}</td><td style="color:${accent||'#5eead4'};font-weight:700">${parsed.values[i]}</td></tr>`;
+    });
+    h += '</tbody></table>';
+    return h;
+  }
+  function multiStripHtml(imgs, s){
+    if (!imgs || imgs.length < 2) return '';
+    return '<div class="multi-strip">' + imgs.slice(0,6).map(u => `<img src="${u}" class="${imgClass(s)}" alt="">`).join('') + '</div>';
+  }
+  function backdropLayer(s, photo){
+    const style = s.backdropStyle || 'none';
+    if (!photo || style === 'none') return '';
+    const cls = {
+      cover: 'backdrop-cover',
+      soft: 'backdrop-soft',
+      torn_paper: 'backdrop-torn',
+      vignette: 'backdrop-vignette',
+      blur: 'backdrop-blur',
+      duotone_bg: 'backdrop-duotone_bg'
+    }[style] || 'backdrop-cover';
+    return `<div class="${cls}" style="background-image:url('${photo}')"></div>`;
   }
 
   function render() {
     const s = SLIDES[idx] || {title:'',body:'',bg:'#0f172a',accent:'#14b8a6',animIn:'fade',layout:'title_body',wordAnim:'fadeUp'};
     keywordAnimOn = (s.wordEmphasis !== false) && (s.keywordAnim !== false);
     const stage = document.getElementById('stage');
-    const photo = imgUrl(s);
+    const imgs = slideImages(s);
+    const photo = imgs[0] || '';
     stage.className = 'slide-stage pat-' + (s.pattern || 'gradient_teal');
-    if (s.layout === 'image_bg' && photo) {
+    stage.style.backgroundColor = s.bg || '';
+    stage.style.backgroundImage = '';
+    // classic full-bleed bg when layout is image_bg OR backdrop cover without torn
+    if (s.layout === 'image_bg' && photo && (s.backdropStyle === 'none' || !s.backdropStyle)) {
       stage.style.backgroundImage = `linear-gradient(rgba(2,6,23,.72),rgba(2,6,23,.82)),url('${photo}')`;
       stage.style.backgroundSize = 'cover';
-    } else {
-      stage.style.backgroundImage = '';
-      /* pattern class provides base; accent glow */
-      stage.style.backgroundColor = s.bg || '';
     }
     const anim = 'anim-' + (s.animIn || 'float3d');
     const iconHtml = s.icon && ICONS[s.icon] ? `<div class="icon-pop mb-3">${ICONS[s.icon]}</div>` : '';
-    const chartBox = (s.chartType && parseChart(s)) ? `<div class="mt-4 h-48 sm:h-52"><canvas id="slideChart"></canvas></div>` : '';
-    let inner;
-    const th = wordSpanHtml(s.title, s.wordAnim), bh = wordSpanHtml(s.body, s.wordAnim);
-    if (s.layout === 'image_left' && photo) {
-      inner = `<div class="layout-split"><div class="img-frame"><img src="${photo}" class="${imgClass(s)}"></div><div>${iconHtml}<h1 class="text-2xl sm:text-4xl font-black text-white mb-3">${th}</h1><div class="text-slate-200 text-base sm:text-lg">${bh}</div>${chartBox}</div></div>`;
-    } else if (s.layout === 'image_right' && photo) {
-      inner = `<div class="layout-split"><div>${iconHtml}<h1 class="text-2xl sm:text-4xl font-black text-white mb-3">${th}</h1><div class="text-slate-200 text-base sm:text-lg">${bh}</div>${chartBox}</div><div class="img-frame"><img src="${photo}" class="${imgClass(s)}"></div></div>`;
-    } else if (s.layout === 'centered') {
-      inner = `<div class="text-center text-white">${iconHtml}<h1 class="text-3xl sm:text-5xl font-black mb-4">${th}</h1><div class="text-base sm:text-lg text-slate-200 max-w-2xl mx-auto">${bh}</div>${chartBox}</div>`;
-    } else {
-      inner = `${iconHtml}<h1 class="text-2xl sm:text-5xl font-black text-white mb-4">${th}</h1><div class="text-base sm:text-lg text-slate-200 leading-relaxed">${bh}</div>${chartBox}${photo&&s.layout!=='image_bg'?`<img src="${photo}" class="mt-4 max-h-40 rounded-xl">`:''}`;
+    const parsed = (s.chartType || s.chartEffect === 'race' || s.showDataTable) ? parseChart(s) : null;
+    const effect = s.chartEffect || 'grow';
+    let chartBox = '';
+    if (effect === 'race' && parsed) {
+      chartBox = raceHtml(s, parsed);
+    } else if (s.chartType && parsed) {
+      const wrapCls = (effect === '3d') ? 'chart-3d-wrap mt-4 h-48 sm:h-56' : 'mt-4 h-48 sm:h-52';
+      chartBox = `<div class="${wrapCls}"><canvas id="slideChart"></canvas></div>`;
     }
-    stage.innerHTML = `<div class="slide-card ${anim} border text-white" style="background:linear-gradient(145deg,rgba(15,23,42,.9),rgba(15,23,42,.72));border-color:${s.accent}55">
-      <div class="flex items-center gap-2 mb-2 opacity-80"><img src="/static/icons/icon-192.png" class="h-5 w-5 rounded"><span class="text-[10px] uppercase tracking-widest" style="color:${s.accent}">Knowsoft Eleon · ${idx+1}/${SLIDES.length}</span></div>
-      ${inner}</div>`;
-    document.getElementById('counter').textContent = `${idx+1} / ${SLIDES.length||1}`;
-    // logo + footer
+    if (s.showDataTable && parsed) {
+      chartBox += tableHtml(parsed, s.accent);
+    }
+    const brand = `<div class="brand-chip mb-2" style="color:${s.accent||'#14b8a6'}"><img src="/static/icons/icon-192.png" class="h-4 w-4 rounded" alt=""><span>Knowsoft Eleon · ${idx+1}/${SLIDES.length}</span></div>`;
+    const fstyle = fontStyle(s);
+    const fsz = fontSizeClass(s);
+    const th = wordSpanHtml(s.title, s.wordAnim);
+    const bh = wordSpanHtml(s.body, s.wordAnim);
+    const strip = multiStripHtml(imgs, s);
+    const bd = backdropLayer(s, photo);
+    let inner;
+    if (s.layout === 'image_left' && photo) {
+      inner = `${bd}<div class="slide-content-layer layout-split"><div><img src="${photo}" class="${imgClass(s)}" onerror="this.style.display='none'"></div><div style="${fstyle}">${brand}${iconHtml}<h1 class="text-2xl sm:text-4xl font-black mb-3" style="color:${s.accent||'#fff'}">${th}</h1><div class="${fsz} leading-relaxed">${bh}</div>${chartBox}${strip}</div></div>`;
+    } else if (s.layout === 'image_right' && photo) {
+      inner = `${bd}<div class="slide-content-layer layout-split"><div style="${fstyle}">${brand}${iconHtml}<h1 class="text-2xl sm:text-4xl font-black mb-3" style="color:${s.accent||'#fff'}">${th}</h1><div class="${fsz} leading-relaxed">${bh}</div>${chartBox}</div><div><img src="${photo}" class="${imgClass(s)}" onerror="this.style.display='none'">${strip}</div></div>`;
+    } else if (s.layout === 'centered' || s.layout === 'icon_hero') {
+      inner = `${bd}<div class="slide-content-layer text-center" style="${fstyle}">${brand}${iconHtml}<h1 class="text-3xl sm:text-5xl font-black mb-4" style="color:${s.accent||'#fff'}">${th}</h1><div class="${fsz} leading-relaxed max-w-3xl mx-auto">${bh}</div>${chartBox}${photo?`<div class="mt-4 flex justify-center"><img src="${photo}" class="${imgClass(s)}" onerror="this.style.display='none'"></div>`:''}${strip}</div>`;
+    } else if (s.layout === 'chart') {
+      inner = `${bd}<div class="slide-content-layer" style="${fstyle}">${brand}${iconHtml}<h1 class="text-2xl sm:text-4xl font-black mb-3" style="color:${s.accent||'#fff'}">${th}</h1>${chartBox}<div class="${fsz} mt-3">${bh}</div>${strip}</div>`;
+    } else if (s.layout === 'split_accent') {
+      inner = `${bd}<div class="slide-content-layer flex gap-4" style="${fstyle}"><div class="w-1.5 rounded-full flex-shrink-0" style="background:${s.accent||'#14b8a6'}"></div><div class="flex-1">${brand}${iconHtml}<h1 class="text-2xl sm:text-4xl font-black mb-3" style="color:${s.accent||'#fff'}">${th}</h1><div class="${fsz} leading-relaxed">${bh}</div>${chartBox}${photo?`<img src="${photo}" class="${imgClass(s)} mt-3" onerror="this.style.display='none'">`:''}${strip}</div></div>`;
+    } else {
+      // title_body + image_bg
+      const showInlineImg = photo && s.layout !== 'image_bg' && (s.backdropStyle === 'none' || !s.backdropStyle);
+      inner = `${bd}<div class="slide-content-layer" style="${fstyle}">${brand}${iconHtml}<h1 class="text-2xl sm:text-4xl font-black mb-3" style="color:${s.accent||'#fff'}">${th}</h1><div class="${fsz} leading-relaxed">${bh}</div>${chartBox}${showInlineImg?`<img src="${photo}" class="${imgClass(s)} mt-4 max-h-48" onerror="this.style.display='none'">`:''}${strip}</div>`;
+    }
     let extras = '';
     if (DECK_LOGO) extras += `<img class="slide-logo" src="${DECK_LOGO}" alt="">`;
-    if (DECK_FOOTER) extras += `<div class="slide-footer">${escapeHtml(DECK_FOOTER)}</div>`;
-    stage.insertAdjacentHTML('beforeend', extras);
+    if (DECK_FOOTER) extras += `<div class="slide-footer">${DECK_FOOTER}</div>`;
+    else extras += `<div class="slide-footer">Knowsoft Eleon</div>`;
+    const content = document.getElementById('slideContent') || stage.querySelector('.slide-inner') || stage;
+    // Prefer dedicated content node
+    let host = document.getElementById('slideContent');
+    if (!host) {
+      // wrap stage children
+      host = stage;
+    }
+    host.innerHTML = `<div class="${anim} w-full max-w-5xl mx-auto px-4 py-6">${inner}</div>` + extras;
+
     if (chartInst) { try{chartInst.destroy()}catch(e){} chartInst=null; }
-    const cd = parseChart(s);
-    if (s.chartType && cd && document.getElementById('slideChart')) {
+    if (s.chartType && parsed && effect !== 'race' && document.getElementById('slideChart')) {
+      const accent = s.accent || '#14b8a6';
+      const palette = [accent, '#6366f1', '#f59e0b', '#ec4899', '#22d3ee', '#a3e635', '#f97316', '#e879f9'];
+      const animateGrow = effect === 'grow' || effect === '3d' || !effect;
       chartInst = new Chart(document.getElementById('slideChart'), {
-        type: s.chartType,
-        data: { labels: cd.labels, datasets: [{ data: cd.values, backgroundColor: ['#14b8a6','#6366f1','#f59e0b','#f43f5e','#8b5cf6','#22d3ee'] }] },
-        options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{labels:{color:'#e2e8f0'}}},
-          scales:(s.chartType==='pie'||s.chartType==='doughnut')?{}:{x:{ticks:{color:'#94a3b8'}},y:{ticks:{color:'#94a3b8'}}} }
+        type: s.chartType === 'polarArea' ? 'polarArea' : s.chartType,
+        data: {
+          labels: parsed.labels,
+          datasets: [{
+            label: s.title || 'Data',
+            data: parsed.values,
+            backgroundColor: s.chartType === 'line' ? accent + '44' : parsed.labels.map((_,i)=>palette[i%palette.length]+'cc'),
+            borderColor: s.chartType === 'line' ? accent : parsed.labels.map((_,i)=>palette[i%palette.length]),
+            borderWidth: 2,
+            tension: 0.35,
+            fill: s.chartType === 'line',
+            pointRadius: 5,
+            pointBackgroundColor: accent
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: animateGrow ? {
+            duration: 1600,
+            easing: 'easeOutQuart',
+            y: { from: 0 }
+          } : false,
+          plugins: {
+            legend: { labels: { color: '#e2e8f0', font: { size: 12, family: s.fontFamily || 'Inter' } } },
+            tooltip: { backgroundColor: '#0f172a', titleColor: accent, bodyColor: '#e2e8f0' }
+          },
+          scales: (s.chartType === 'pie' || s.chartType === 'doughnut' || s.chartType === 'polarArea' || s.chartType === 'radar') ? {} : {
+            x: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(255,255,255,0.06)' } },
+            y: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(255,255,255,0.06)' }, beginAtZero: true }
+          }
+        }
+      });
+    }
+    // Race animation trigger
+    if (effect === 'race') {
+      requestAnimationFrame(() => {
+        document.querySelectorAll('.race-bar').forEach((el, i) => {
+          const pct = el.getAttribute('data-pct') || 0;
+          setTimeout(() => { el.style.width = pct + '%'; }, 80 + i * 120);
+        });
       });
     }
     try { if (typeof syncLiveIndex === 'function') syncLiveIndex(); } catch (e) {}

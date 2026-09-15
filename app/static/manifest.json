@@ -1,7 +1,7 @@
 {
   "name": "Knowsoft Churchgate",
   "short_name": "Churchgate",
-  "description": "Present Smarter.",
+  "description": "One flock. Every assembly visible. Church management platform connecting Global, Country, State, Group and District churches.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#000000",
@@ -17,14 +17,14 @@
       "purpose": "any"
     },
     {
-      "src": "/static/icons/icon-512-maskable.png",
-      "sizes": ""512x512",
+      "src": "/static/icons/icon-512.png",
+      "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
     },
     {
       "src": "/static/icons/icon-512-maskable.png",
-      "sizes": ""512x512",
+      "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
     }
