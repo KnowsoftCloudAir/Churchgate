@@ -75,12 +75,22 @@ async def lifespan(app: FastAPI):
                         ("backdrop_style", "ALTER TABLE slide ADD COLUMN backdrop_style VARCHAR DEFAULT 'none'"),
                         ("chart_effect", "ALTER TABLE slide ADD COLUMN chart_effect VARCHAR DEFAULT 'grow'"),
                         ("show_data_table", "ALTER TABLE slide ADD COLUMN show_data_table BOOLEAN DEFAULT 0"),
+                        ("chart_label_mode", "ALTER TABLE slide ADD COLUMN chart_label_mode VARCHAR DEFAULT 'outside'"),
                     ]:
                         if scols and col not in scols:
                             conn.execute(text(ddl))
                             print("migrated: slide." + col)
                 except Exception as se:
                     print("slide migrate warn:", se)
+
+                try:
+                    pcols = [r[1] for r in conn.execute(text("PRAGMA table_info(presentation)")).fetchall()]
+                    if pcols and "original_pptx_path" not in pcols:
+                        conn.execute(text("ALTER TABLE presentation ADD COLUMN original_pptx_path VARCHAR"))
+                        print("migrated: presentation.original_pptx_path")
+                except Exception as pe:
+                    print("pres migrate warn:", pe)
+
     except Exception as e:
         print("migrate warn:", e)
 
@@ -662,6 +672,7 @@ async def update_slide(
     backdrop_style: str = Form("none"),
     chart_effect: str = Form("grow"),
     show_data_table: str = Form("off"),
+    chart_label_mode: str = Form("outside"),
     user: User = Depends(require_user),
     session: Session = Depends(get_session),
 ):
@@ -697,6 +708,7 @@ async def update_slide(
         ("font_color", font_color or "#e2e8f0"),
         ("backdrop_style", backdrop_style or "none"),
         ("chart_effect", chart_effect or "grow"),
+        ("chart_label_mode", chart_label_mode or "outside"),
     ]:
         if hasattr(s, attr):
             setattr(s, attr, val)
@@ -750,7 +762,23 @@ async def upload_slide_image(
         ext = ".png"
     fname = f"s{sid}_{secrets.token_hex(6)}{ext}"
     (UPLOAD_SLIDES / fname).write_bytes(data)
-    s.image_path = f"/static/uploads/slides/{fname}"
+    url = f"/static/uploads/slides/{fname}"
+    s.image_path = url
+    # keep multi-image list
+    try:
+        import json as _json
+        arr = []
+        if getattr(s, "images_json", None):
+            try:
+                arr = _json.loads(s.images_json) if isinstance(s.images_json, str) else list(s.images_json or [])
+            except Exception:
+                arr = []
+        if url not in arr:
+            arr.insert(0, url)
+        if hasattr(s, "images_json"):
+            s.images_json = _json.dumps(arr)
+    except Exception as e:
+        print("images_json update", e)
     session.add(s)
     session.commit()
     return RedirectResponse(f"/presentations/{pid}/edit?sid={sid}", status_code=303)
@@ -981,14 +1009,37 @@ async def present_mode(
         if getattr(s, "show_data_table", None) is None:
             try: s.show_data_table = False
             except Exception: pass
+        if not getattr(s, "chart_label_mode", None):
+            try: s.chart_label_mode = "outside"
+            except Exception: pass
         if not getattr(s, "images_json", None) and getattr(s, "image_path", None):
             try:
                 import json as _json
                 s.images_json = _json.dumps([s.image_path])
             except Exception: pass
+    
     return templates.TemplateResponse("presenter/present.html", {
         "request": request, "user": user, "presentation": p, "slides": slides, "shared": False,
     })
+
+
+@app.get("/presentations/{pid}/present-original", response_class=HTMLResponse)
+async def present_original_pptx(
+    pid: int, request: Request,
+    user: User = Depends(require_user), session: Session = Depends(get_session),
+):
+    """Present the uploaded PPT/PPTX directly (Office viewer + download fallback)."""
+    p = session.get(Presentation, pid)
+    if not p or p.owner_id != user.id:
+        raise HTTPException(404)
+    path = getattr(p, "original_pptx_path", None)
+    if not path:
+        # try find any stored
+        raise HTTPException(404, "No original PPT uploaded for this presentation. Import a .pptx first.")
+    return templates.TemplateResponse("presenter/present_original.html", {
+        "request": request, "user": user, "presentation": p, "pptx_url": path,
+    })
+
 
 
 @app.post("/api/eleon/ask")
@@ -1147,6 +1198,16 @@ async def import_document(
         raise HTTPException(400, "File too large (max 15MB)")
     fname = (document.filename or "doc.txt").lower()
     if fname.endswith((".pptx", ".ppt")):
+        # always store original for direct present
+        try:
+            ppt_name = f"orig_{pid}_{secrets.token_hex(4)}.pptx"
+            ppt_dest = UPLOAD_SLIDES / ppt_name
+            ppt_dest.write_bytes(data)
+            p.original_pptx_path = f"/static/uploads/slides/{ppt_name}"
+            session.add(p)
+            session.commit()
+        except Exception as e:
+            print("store pptx fail", e)
         payloads = pptx_to_slide_payloads(data, max_slides=30)
     else:
         text = extract_text_from_upload(document.filename or "doc.txt", data)
@@ -1356,7 +1417,7 @@ async def export_pptx(pid: int, user: User = Depends(require_user), session: Ses
         raise HTTPException(404)
     slides = session.exec(select(Slide).where(Slide.presentation_id == pid).order_by(Slide.position)).all()
     from app.pptx_export import build_pptx_bytes
-    data = build_pptx_bytes(p.title or "Eleon", slides)
+    data = build_pptx_bytes(p.title or "Eleon", slides, base_dir=BASE)
     return StreamingResponse(
         io.BytesIO(data),
         media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
