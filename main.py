@@ -23,12 +23,39 @@ from app.auth import (
 )
 
 BASE = Path(__file__).resolve().parent
-UPLOAD_SLIDES = BASE / "app" / "static" / "uploads" / "slides"
+
+def _find_templates_dir() -> Path:
+    """Resolve templates whether app lives at BASE/app or BASE (flat deploy)."""
+    candidates = [
+        BASE / "app" / "templates",
+        BASE / "templates",
+        Path.cwd() / "app" / "templates",
+        Path.cwd() / "templates",
+    ]
+    for c in candidates:
+        if c.is_dir() and (c / "splash.html").exists():
+            return c
+    for c in candidates:
+        if c.is_dir():
+            return c
+    # last resort create minimal
+    d = BASE / "app" / "templates"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+TEMPLATES_DIR = _find_templates_dir()
+STATIC_DIR = BASE / "app" / "static"
+if not STATIC_DIR.is_dir():
+    STATIC_DIR = BASE / "static"
+STATIC_DIR.mkdir(parents=True, exist_ok=True)
+
+UPLOAD_SLIDES = STATIC_DIR / "uploads" / "slides"
 UPLOAD_SLIDES.mkdir(parents=True, exist_ok=True)
-UPLOAD_DOCS = BASE / "app" / "static" / "uploads" / "docs"
+UPLOAD_DOCS = STATIC_DIR / "uploads" / "docs"
 UPLOAD_DOCS.mkdir(parents=True, exist_ok=True)
 
-templates = Jinja2Templates(directory=str(BASE / "app" / "templates"))
+templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+print(f"Eleon templates: {TEMPLATES_DIR}  static: {STATIC_DIR}")
 
 
 def gen_login_number() -> str:
@@ -46,53 +73,89 @@ DURATION_DAYS = {"week": 7, "month": 30, "year": 365}
 async def lifespan(app: FastAPI):
     create_db_and_tables()
 
-    # migrate new columns on sqlite (user sub + slide images_json)
+    # Comprehensive column migrations (create_all does not ALTER existing tables)
     try:
         from sqlalchemy import text
         with engine.begin() as conn:
-            if "sqlite" in str(engine.url):
-                # User subscription columns
-                cols = [r[1] for r in conn.execute(text("PRAGMA table_info(user)")).fetchall()]
-                alters = []
-                if "sub_status" not in cols:
-                    alters.append("ALTER TABLE user ADD COLUMN sub_status VARCHAR DEFAULT 'trial_12h'")
-                if "sub_ends_at" not in cols:
-                    alters.append("ALTER TABLE user ADD COLUMN sub_ends_at DATETIME")
-                if "free_month_used" not in cols:
-                    alters.append("ALTER TABLE user ADD COLUMN free_month_used BOOLEAN DEFAULT 0")
-                if "sub_plan" not in cols:
-                    alters.append("ALTER TABLE user ADD COLUMN sub_plan VARCHAR DEFAULT 'trial'")
-                for a in alters:
-                    conn.execute(text(a))
-                # Slide multi-image column
-                try:
-                    scols = [r[1] for r in conn.execute(text("PRAGMA table_info(slide)")).fetchall()]
-                    for col, ddl in [
-                        ("images_json", "ALTER TABLE slide ADD COLUMN images_json TEXT"),
-                        ("font_family", "ALTER TABLE slide ADD COLUMN font_family VARCHAR DEFAULT 'Inter'"),
-                        ("font_size", "ALTER TABLE slide ADD COLUMN font_size VARCHAR DEFAULT 'md'"),
-                        ("font_color", "ALTER TABLE slide ADD COLUMN font_color VARCHAR DEFAULT '#e2e8f0'"),
-                        ("backdrop_style", "ALTER TABLE slide ADD COLUMN backdrop_style VARCHAR DEFAULT 'none'"),
-                        ("chart_effect", "ALTER TABLE slide ADD COLUMN chart_effect VARCHAR DEFAULT 'grow'"),
-                        ("show_data_table", "ALTER TABLE slide ADD COLUMN show_data_table BOOLEAN DEFAULT 0"),
-                        ("chart_label_mode", "ALTER TABLE slide ADD COLUMN chart_label_mode VARCHAR DEFAULT 'outside'"),
-                    ]:
-                        if scols and col not in scols:
-                            conn.execute(text(ddl))
-                            print("migrated: slide." + col)
-                except Exception as se:
-                    print("slide migrate warn:", se)
+            url = str(engine.url).lower()
+            is_sqlite = "sqlite" in url
 
+            def table_cols(table):
                 try:
-                    pcols = [r[1] for r in conn.execute(text("PRAGMA table_info(presentation)")).fetchall()]
-                    if pcols and "original_pptx_path" not in pcols:
-                        conn.execute(text("ALTER TABLE presentation ADD COLUMN original_pptx_path VARCHAR"))
-                        print("migrated: presentation.original_pptx_path")
-                except Exception as pe:
-                    print("pres migrate warn:", pe)
+                    if is_sqlite:
+                        return {r[1] for r in conn.execute(text(f"PRAGMA table_info({table})")).fetchall()}
+                    rows = conn.execute(text(
+                        "SELECT column_name FROM information_schema.columns "
+                        "WHERE table_name = :t"
+                    ), {"t": table}).fetchall()
+                    return {r[0] for r in rows}
+                except Exception as e:
+                    print("table_cols", table, e)
+                    return set()
 
+            def addcol(table, col, sqlite_ddl, pg_ddl=None):
+                c = table_cols(table)
+                if not c:
+                    return
+                if col in c:
+                    return
+                ddl = sqlite_ddl if is_sqlite else (pg_ddl or sqlite_ddl)
+                # postgres often needs different types - simplify
+                if not is_sqlite:
+                    ddl = ddl.replace("VARCHAR", "VARCHAR")
+                    ddl = ddl.replace("BOOLEAN DEFAULT 0", "BOOLEAN DEFAULT FALSE")
+                    ddl = ddl.replace("BOOLEAN DEFAULT 1", "BOOLEAN DEFAULT TRUE")
+                    ddl = ddl.replace("DATETIME", "TIMESTAMP")
+                    ddl = ddl.replace("TEXT DEFAULT ''", "TEXT DEFAULT ''")
+                try:
+                    conn.execute(text(ddl))
+                    print(f"migrated: {table}.{col}")
+                except Exception as e:
+                    print(f"migrate skip {table}.{col}:", e)
+
+            addcol("user", "sub_status", "ALTER TABLE user ADD COLUMN sub_status VARCHAR DEFAULT 'trial_12h'")
+            addcol("user", "sub_ends_at", "ALTER TABLE user ADD COLUMN sub_ends_at DATETIME")
+            addcol("user", "free_month_used", "ALTER TABLE user ADD COLUMN free_month_used BOOLEAN DEFAULT 0")
+            addcol("user", "sub_plan", "ALTER TABLE user ADD COLUMN sub_plan VARCHAR DEFAULT 'trial'")
+
+            for col, ddl in [
+                ("images_json", "ALTER TABLE slide ADD COLUMN images_json TEXT"),
+                ("font_family", "ALTER TABLE slide ADD COLUMN font_family VARCHAR DEFAULT 'Inter'"),
+                ("font_size", "ALTER TABLE slide ADD COLUMN font_size VARCHAR DEFAULT 'md'"),
+                ("font_color", "ALTER TABLE slide ADD COLUMN font_color VARCHAR DEFAULT '#e2e8f0'"),
+                ("backdrop_style", "ALTER TABLE slide ADD COLUMN backdrop_style VARCHAR DEFAULT 'none'"),
+                ("chart_effect", "ALTER TABLE slide ADD COLUMN chart_effect VARCHAR DEFAULT 'grow'"),
+                ("show_data_table", "ALTER TABLE slide ADD COLUMN show_data_table BOOLEAN DEFAULT 0"),
+                ("chart_label_mode", "ALTER TABLE slide ADD COLUMN chart_label_mode VARCHAR DEFAULT 'outside'"),
+                ("image_path", "ALTER TABLE slide ADD COLUMN image_path VARCHAR"),
+                ("online_image_url", "ALTER TABLE slide ADD COLUMN online_image_url VARCHAR"),
+                ("layout_style", "ALTER TABLE slide ADD COLUMN layout_style VARCHAR DEFAULT 'title_body'"),
+                ("icon_name", "ALTER TABLE slide ADD COLUMN icon_name VARCHAR DEFAULT ''"),
+                ("chart_type", "ALTER TABLE slide ADD COLUMN chart_type VARCHAR DEFAULT ''"),
+                ("chart_data", "ALTER TABLE slide ADD COLUMN chart_data TEXT"),
+                ("pattern", "ALTER TABLE slide ADD COLUMN pattern VARCHAR DEFAULT 'gradient_teal'"),
+                ("image_style", "ALTER TABLE slide ADD COLUMN image_style VARCHAR DEFAULT 'frame'"),
+                ("word_animation", "ALTER TABLE slide ADD COLUMN word_animation VARCHAR DEFAULT 'fadeUp'"),
+                ("word_emphasis", "ALTER TABLE slide ADD COLUMN word_emphasis BOOLEAN DEFAULT 1"),
+                ("keyword_animation", "ALTER TABLE slide ADD COLUMN keyword_animation BOOLEAN DEFAULT 1"),
+                ("animation_in", "ALTER TABLE slide ADD COLUMN animation_in VARCHAR DEFAULT 'fade'"),
+                ("animation_out", "ALTER TABLE slide ADD COLUMN animation_out VARCHAR DEFAULT 'fade'"),
+                ("bg_color", "ALTER TABLE slide ADD COLUMN bg_color VARCHAR DEFAULT '#0f172a'"),
+                ("accent", "ALTER TABLE slide ADD COLUMN accent VARCHAR DEFAULT '#14b8a6'"),
+                ("notes", "ALTER TABLE slide ADD COLUMN notes TEXT"),
+                ("extra_data", "ALTER TABLE slide ADD COLUMN extra_data TEXT"),
+            ]:
+                addcol("slide", col, ddl)
+
+            addcol("presentation", "original_pptx_path", "ALTER TABLE presentation ADD COLUMN original_pptx_path VARCHAR")
+            addcol("presentation", "logo_path", "ALTER TABLE presentation ADD COLUMN logo_path VARCHAR")
+            addcol("presentation", "footer_text", "ALTER TABLE presentation ADD COLUMN footer_text VARCHAR DEFAULT ''")
+            addcol("presentation", "default_pattern", "ALTER TABLE presentation ADD COLUMN default_pattern VARCHAR DEFAULT 'gradient_teal'")
+            addcol("presentation", "share_token", "ALTER TABLE presentation ADD COLUMN share_token VARCHAR")
     except Exception as e:
         print("migrate warn:", e)
+        import traceback
+        traceback.print_exc()
 
     from sqlmodel import Session as S
     with S(engine) as session:
@@ -206,7 +269,32 @@ async def http_exception_handler(request: Request, exc: HTTPException):
     from fastapi.responses import JSONResponse as _JC
     return _JC({"detail": exc.detail}, status_code=exc.status_code)
 
-app.mount("/static", StaticFiles(directory=str(BASE / "app" / "static")), name="static")
+_static = BASE / "app" / "static"
+if not _static.is_dir():
+    _static = BASE / "static"
+_static.mkdir(parents=True, exist_ok=True)
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Avoid opaque 500s during debugging; still log full traceback."""
+    import traceback
+    traceback.print_exc()
+    accept = request.headers.get("accept") or ""
+    if "text/html" in accept:
+        detail = str(exc).replace("<", "&lt;")[:800]
+        html = f"""<!DOCTYPE html><html><head><meta charset=utf-8><title>Error</title>
+        <script src="https://cdn.tailwindcss.com"></script></head>
+        <body class="min-h-screen bg-slate-950 text-slate-100 p-8">
+        <h1 class="text-2xl font-bold text-rose-300">Something went wrong</h1>
+        <p class="mt-2 text-slate-400 text-sm">Eleon hit an error on this page. Details for the admin log:</p>
+        <pre class="mt-4 text-xs bg-black/40 p-4 rounded-xl overflow-auto text-amber-100">{detail}</pre>
+        <p class="mt-4"><a class="text-teal-300" href="/">Home</a> · <a class="text-teal-300" href="/dashboard">Dashboard</a></p>
+        </body></html>"""
+        return HTMLResponse(html, status_code=500)
+    return JSONResponse({"detail": str(exc)}, status_code=500)
+
+
+app.mount("/static", StaticFiles(directory=str(_static)), name="static")
 
 
 
@@ -385,7 +473,26 @@ async def service_worker():
 @app.get("/", response_class=HTMLResponse)
 async def splash(request: Request, session: Session = Depends(get_session)):
     user = user_from_request(request, session)
-    return templates.TemplateResponse("splash.html", {"request": request, "user": user})
+    try:
+        return templates.TemplateResponse("splash.html", {"request": request, "user": user})
+    except Exception as e:
+        print("splash template error:", e)
+        # emergency fallback so the service never 500s on home
+        name = (user.full_name if user else "guest")
+        html = f"""<!DOCTYPE html><html><head><meta charset=utf-8><title>Eleon</title>
+        <script src="https://cdn.tailwindcss.com"></script></head>
+        <body class="min-h-screen bg-slate-950 text-white flex items-center justify-center p-6">
+        <div class="max-w-md text-center space-y-4">
+          <h1 class="text-3xl font-black text-teal-300">Knowsoft Eleon</h1>
+          <p class="text-slate-400">Your presentation partner</p>
+          <p class="text-xs text-rose-300">Template note: {e}</p>
+          <div class="flex gap-3 justify-center">
+            <a class="rounded-xl bg-teal-600 px-4 py-2 font-bold" href="/login">Sign in</a>
+            <a class="rounded-xl border border-white/20 px-4 py-2" href="/register">Register</a>
+            <a class="rounded-xl border border-white/20 px-4 py-2" href="/dashboard">Dashboard</a>
+          </div>
+        </div></body></html>"""
+        return HTMLResponse(html)
 
 
 @app.get("/login", response_class=HTMLResponse)
