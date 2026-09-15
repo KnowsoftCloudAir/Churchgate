@@ -67,9 +67,18 @@ async def lifespan(app: FastAPI):
                 # Slide multi-image column
                 try:
                     scols = [r[1] for r in conn.execute(text("PRAGMA table_info(slide)")).fetchall()]
-                    if scols and "images_json" not in scols:
-                        conn.execute(text("ALTER TABLE slide ADD COLUMN images_json TEXT"))
-                        print("migrated: slide.images_json")
+                    for col, ddl in [
+                        ("images_json", "ALTER TABLE slide ADD COLUMN images_json TEXT"),
+                        ("font_family", "ALTER TABLE slide ADD COLUMN font_family VARCHAR DEFAULT 'Inter'"),
+                        ("font_size", "ALTER TABLE slide ADD COLUMN font_size VARCHAR DEFAULT 'md'"),
+                        ("font_color", "ALTER TABLE slide ADD COLUMN font_color VARCHAR DEFAULT '#e2e8f0'"),
+                        ("backdrop_style", "ALTER TABLE slide ADD COLUMN backdrop_style VARCHAR DEFAULT 'none'"),
+                        ("chart_effect", "ALTER TABLE slide ADD COLUMN chart_effect VARCHAR DEFAULT 'grow'"),
+                        ("show_data_table", "ALTER TABLE slide ADD COLUMN show_data_table BOOLEAN DEFAULT 0"),
+                    ]:
+                        if scols and col not in scols:
+                            conn.execute(text(ddl))
+                            print("migrated: slide." + col)
                 except Exception as se:
                     print("slide migrate warn:", se)
     except Exception as e:
@@ -208,35 +217,144 @@ def extract_text_from_upload(filename: str, data: bytes) -> str:
     return data.decode("utf-8", errors="ignore")
 
 
-def document_to_slide_payloads(text: str, max_slides: int = 20) -> list:
-    """Split document into slide-sized chunks with title + body + extra_data."""
+
+def document_to_slide_payloads(text: str, max_slides: int = 10) -> list:
+    """Extract topics, subtopics and key points into up to max_slides content slides + Thank you.
+    Every slide carries Knowsoft Eleon branding via extra_data footer note.
+    """
     text = (text or "").strip()
+    brand = "Knowsoft Eleon"
     if not text:
-        return [{"title": "Empty document", "body": "No text extracted.", "extra_data": ""}]
-    # Prefer markdown/numbered headings
-    blocks = re.split(r"\n(?=#{1,3}\s|\d+\.\s+[A-Z]|[A-Z][A-Z0-9 ]{8,}$)", text)
+        return [
+            {"title": "Empty document", "body": "No text extracted.", "extra_data": brand, "pattern": "gradient_teal", "icon_name": "book"},
+            {"title": "Thank you", "body": "Thank you for your attention.\\nAny questions?", "extra_data": brand, "pattern": "aurora", "icon_name": "spark"},
+        ]
+
+    # Split by headings / numbered sections / ALL-CAPS titles / double newlines
+    blocks = re.split(
+        r"\n(?=#{1,3}\s+|\d+[\.\)]\s+[A-Z]|[A-Z][A-Z0-9 ,\-]{10,}$)",
+        text,
+    )
     if len(blocks) < 2:
-        # paragraph chunks
-        paras = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
+        paras = [p.strip() for p in re.split(r"\n\s*\n+", text) if len(p.strip()) > 40]
         blocks = paras if paras else [text]
+
     slides = []
-    for i, block in enumerate(blocks[:max_slides]):
+    for i, block in enumerate(blocks):
+        if len(slides) >= max_slides:
+            break
         lines = [ln.strip() for ln in block.strip().splitlines() if ln.strip()]
         if not lines:
             continue
-        title = re.sub(r"^#{1,3}\s*", "", lines[0])[:120]
-        body = "\n".join(lines[1:6]) if len(lines) > 1 else lines[0][:500]
-        extra = block.strip()[:2000]
-        slides.append({"title": title or f"Slide {i+1}", "body": body, "extra_data": extra})
+        title = re.sub(r"^#{1,3}\s*", "", lines[0])
+        title = re.sub(r"^\d+[\.\)]\s*", "", title)[:100]
+        # Bullet / key points from remaining lines
+        points = []
+        for ln in lines[1:]:
+            ln2 = re.sub(r"^[\-\*•●▪]\s*", "", ln)
+            ln2 = re.sub(r"^\d+[\.\)]\s*", "", ln2)
+            if len(ln2) > 8:
+                points.append("• " + ln2[:180])
+            if len(points) >= 6:
+                break
+        if not points:
+            body_src = " ".join(lines[1:]) if len(lines) > 1 else lines[0]
+            # sentence chunks as points
+            sents = re.split(r"(?<=[.!?])\s+", body_src)
+            for s in sents:
+                s = s.strip()
+                if len(s) > 20:
+                    points.append("• " + s[:180])
+                if len(points) >= 5:
+                    break
+        body = "\n".join(points) if points else (lines[0][:400])
+        patterns = ["gradient_teal", "mesh_indigo", "aurora", "orbs", "waves", "grid_dark", "sunset", "gold_lines"]
+        icons = ["book", "idea", "target", "growth", "chart", "star", "globe", "check", "team", "spark"]
+        slides.append({
+            "title": title or f"Topic {i+1}",
+            "body": body,
+            "extra_data": f"{brand} · Document insight {i+1}\n" + block.strip()[:1800],
+            "pattern": patterns[i % len(patterns)],
+            "icon_name": icons[i % len(icons)],
+            "animation_in": ["float3d", "cube", "zoom", "slideUp", "bounceIn"][i % 5],
+            "layout_style": "title_body",
+        })
+
     if not slides:
-        slides.append({"title": "Document overview", "body": text[:600], "extra_data": text[:3000]})
-    # Closing slide
+        slides.append({
+            "title": "Document overview",
+            "body": text[:600],
+            "extra_data": brand + "\n" + text[:3000],
+            "pattern": "gradient_teal",
+            "icon_name": "book",
+        })
+
+    # Cap content slides at max_slides then thank-you
+    slides = slides[:max_slides]
     slides.append({
         "title": "Thank you",
-        "body": "Thank you for your attention.\nAny questions?",
-        "extra_data": text[:4000],
+        "body": "Thank you for your attention.\\nAny questions?\\n\\nPowered by Knowsoft Eleon",
+        "extra_data": brand + "\n" + text[:2000],
+        "pattern": "aurora",
+        "icon_name": "spark",
+        "animation_in": "zoom",
+        "layout_style": "centered",
     })
     return slides
+
+
+def pptx_to_slide_payloads(data: bytes, max_slides: int = 30) -> list:
+    """Import slides from a PowerPoint (.pptx) file for Eleon to present."""
+    brand = "Knowsoft Eleon"
+    try:
+        from pptx import Presentation as PP
+        from pptx.enum.shapes import MSO_SHAPE_TYPE
+    except Exception as e:
+        return [{"title": "PPTX import error", "body": str(e), "extra_data": brand}]
+
+    prs = PP(io.BytesIO(data))
+    slides = []
+    for i, slide in enumerate(prs.slides):
+        if i >= max_slides:
+            break
+        texts = []
+        for shape in slide.shapes:
+            if not shape.has_text_frame:
+                continue
+            for para in shape.text_frame.paragraphs:
+                t = "".join([r.text for r in para.runs]).strip()
+                if t:
+                    texts.append(t)
+        if not texts:
+            texts = [f"Slide {i+1}"]
+        title = texts[0][:120]
+        body_lines = []
+        for t in texts[1:8]:
+            body_lines.append(("• " if not t.startswith("•") else "") + t[:200])
+        body = "\n".join(body_lines) if body_lines else texts[0][:400]
+        slides.append({
+            "title": title,
+            "body": body,
+            "extra_data": brand + "\nImported from PowerPoint\n" + "\n".join(texts)[:2000],
+            "pattern": ["gradient_teal", "mesh_indigo", "aurora", "orbs"][i % 4],
+            "icon_name": "book",
+            "animation_in": "fade",
+            "layout_style": "title_body",
+        })
+    if not slides:
+        slides.append({"title": "Empty presentation", "body": "No text found in PPTX.", "extra_data": brand})
+    slides.append({
+        "title": "Thank you",
+        "body": "Thank you for your attention.\\nAny questions?\\n\\nPowered by Knowsoft Eleon",
+        "extra_data": brand,
+        "pattern": "aurora",
+        "icon_name": "spark",
+        "animation_in": "zoom",
+        "layout_style": "centered",
+    })
+    return slides
+
+
 
 
 # ---------- Public / Auth ----------
@@ -459,6 +577,12 @@ async def add_slide(
     word_emphasis: str = Form("on"),
     image_path: str = Form(""),
     images_json: str = Form(""),
+    font_family: str = Form("Inter"),
+    font_size: str = Form("md"),
+    font_color: str = Form("#e2e8f0"),
+    backdrop_style: str = Form("none"),
+    chart_effect: str = Form("grow"),
+    show_data_table: str = Form("off"),
     user: User = Depends(require_user),
     session: Session = Depends(get_session),
 ):
@@ -490,6 +614,16 @@ async def add_slide(
         cols = {c["name"] for c in sa_inspect(engine).get_columns("slide")}
         if "images_json" in cols:
             slide_kwargs["images_json"] = images_json or None
+        for col, val in [
+            ("font_family", font_family or "Inter"),
+            ("font_size", font_size or "md"),
+            ("font_color", font_color or "#e2e8f0"),
+            ("backdrop_style", backdrop_style or "none"),
+            ("chart_effect", chart_effect or "grow"),
+            ("show_data_table", show_data_table == "on"),
+        ]:
+            if col in cols:
+                slide_kwargs[col] = val
     except Exception:
         pass
     session.add(Slide(**slide_kwargs))
@@ -522,6 +656,12 @@ async def update_slide(
     word_emphasis: str = Form("on"),
     image_path: str = Form(""),
     images_json: str = Form(""),
+    font_family: str = Form("Inter"),
+    font_size: str = Form("md"),
+    font_color: str = Form("#e2e8f0"),
+    backdrop_style: str = Form("none"),
+    chart_effect: str = Form("grow"),
+    show_data_table: str = Form("off"),
     user: User = Depends(require_user),
     session: Session = Depends(get_session),
 ):
@@ -551,9 +691,17 @@ async def update_slide(
         s.image_path = image_path
     if images_json and hasattr(s, "images_json"):
         s.images_json = images_json
-    elif images_json:
-        # store extra paths in extra_data marker if no column
-        pass
+    for attr, val in [
+        ("font_family", font_family or "Inter"),
+        ("font_size", font_size or "md"),
+        ("font_color", font_color or "#e2e8f0"),
+        ("backdrop_style", backdrop_style or "none"),
+        ("chart_effect", chart_effect or "grow"),
+    ]:
+        if hasattr(s, attr):
+            setattr(s, attr, val)
+    if hasattr(s, "show_data_table"):
+        s.show_data_table = (show_data_table == "on")
     p.updated_at = datetime.utcnow()
     session.add(s)
     session.add(p)
@@ -813,6 +961,31 @@ async def present_mode(
     slides = session.exec(
         select(Slide).where(Slide.presentation_id == pid).order_by(Slide.position)
     ).all()
+    # Ensure new optional fields exist for template (older DB rows)
+    for s in slides:
+        if not getattr(s, "font_family", None):
+            try: s.font_family = "Inter"
+            except Exception: pass
+        if not getattr(s, "font_size", None):
+            try: s.font_size = "md"
+            except Exception: pass
+        if not getattr(s, "font_color", None):
+            try: s.font_color = "#e2e8f0"
+            except Exception: pass
+        if not getattr(s, "backdrop_style", None):
+            try: s.backdrop_style = "none"
+            except Exception: pass
+        if not getattr(s, "chart_effect", None):
+            try: s.chart_effect = "grow"
+            except Exception: pass
+        if getattr(s, "show_data_table", None) is None:
+            try: s.show_data_table = False
+            except Exception: pass
+        if not getattr(s, "images_json", None) and getattr(s, "image_path", None):
+            try:
+                import json as _json
+                s.images_json = _json.dumps([s.image_path])
+            except Exception: pass
     return templates.TemplateResponse("presenter/present.html", {
         "request": request, "user": user, "presentation": p, "slides": slides, "shared": False,
     })
@@ -972,8 +1145,12 @@ async def import_document(
     data = await document.read()
     if len(data) > 15_000_000:
         raise HTTPException(400, "File too large (max 15MB)")
-    text = extract_text_from_upload(document.filename or "doc.txt", data)
-    payloads = document_to_slide_payloads(text)
+    fname = (document.filename or "doc.txt").lower()
+    if fname.endswith((".pptx", ".ppt")):
+        payloads = pptx_to_slide_payloads(data, max_slides=30)
+    else:
+        text = extract_text_from_upload(document.filename or "doc.txt", data)
+        payloads = document_to_slide_payloads(text, max_slides=10)
     # replace existing slides
     old = session.exec(select(Slide).where(Slide.presentation_id == pid)).all()
     for s in old:
@@ -983,11 +1160,14 @@ async def import_document(
         session.add(Slide(
             presentation_id=pid,
             position=i,
-            title=pl["title"],
-            body=pl["body"],
-            extra_data=pl["extra_data"],
-            animation_in="fade" if i < len(payloads) - 1 else "zoom",
+            title=pl.get("title") or f"Slide {i+1}",
+            body=pl.get("body") or "",
+            extra_data=pl.get("extra_data") or "Knowsoft Eleon",
+            animation_in=pl.get("animation_in") or ("zoom" if i == len(payloads) - 1 else "float3d"),
             animation_out="fade",
+            pattern=pl.get("pattern") or "gradient_teal",
+            icon_name=pl.get("icon_name") or "",
+            layout_style=pl.get("layout_style") or "title_body",
         ))
     p.updated_at = datetime.utcnow()
     session.add(p)
