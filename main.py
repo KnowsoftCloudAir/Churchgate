@@ -54,8 +54,111 @@ UPLOAD_SLIDES.mkdir(parents=True, exist_ok=True)
 UPLOAD_DOCS = STATIC_DIR / "uploads" / "docs"
 UPLOAD_DOCS.mkdir(parents=True, exist_ok=True)
 
-templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
-print(f"Eleon templates: {TEMPLATES_DIR}  static: {STATIC_DIR}")
+
+def _restore_packaged_templates() -> None:
+    """Copy packaged templates into TEMPLATES_DIR if missing (self-heal incomplete deploys)."""
+    import shutil
+    packaged = BASE / "app" / "packaged_templates"
+    if not packaged.is_dir():
+        print("No packaged_templates dir")
+        return
+    # splash
+    src_splash = packaged / "splash.html"
+    dst_splash = TEMPLATES_DIR / "splash.html"
+    if src_splash.exists() and not dst_splash.exists():
+        dst_splash.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src_splash, dst_splash)
+        print("restored splash.html")
+    # presenter/*
+    src_pres = packaged / "presenter"
+    dst_pres = TEMPLATES_DIR / "presenter"
+    if src_pres.is_dir():
+        dst_pres.mkdir(parents=True, exist_ok=True)
+        for f in src_pres.iterdir():
+            if f.is_file():
+                target = dst_pres / f.name
+                if not target.exists() or target.stat().st_size < 100:
+                    shutil.copy2(f, target)
+                    print("restored presenter/" + f.name)
+
+
+_restore_packaged_templates()
+
+# Multi-path Jinja loader so either layout works
+from jinja2 import ChoiceLoader, FileSystemLoader, Environment
+_loader_paths = []
+for p in [TEMPLATES_DIR, BASE / "app" / "templates", BASE / "templates", BASE / "app" / "packaged_templates"]:
+    if p.is_dir() and str(p) not in _loader_paths:
+        _loader_paths.append(str(p))
+templates = Jinja2Templates(directory=_loader_paths[0] if _loader_paths else str(TEMPLATES_DIR))
+# Replace env loader with choice loader
+templates.env.loader = ChoiceLoader([FileSystemLoader(p) for p in _loader_paths])
+print(f"Eleon templates dirs: {_loader_paths}")
+print(f"  present.html exists: {(TEMPLATES_DIR / 'presenter' / 'present.html').exists()}")
+print(f"  packaged present: {(BASE / 'app' / 'packaged_templates' / 'presenter' / 'present.html').exists()}")
+
+
+def _safe_template(name: str, ctx: dict):
+    """Render Jinja template or return a minimal HTML fallback."""
+    try:
+        return templates.TemplateResponse(name, ctx)
+    except Exception as e:
+        print(f"template miss {name}:", e)
+        from fastapi.responses import HTMLResponse
+        p = ctx.get("presentation")
+        slides = ctx.get("slides") or []
+        pid = getattr(p, "id", 0) if p else 0
+        title = getattr(p, "title", "Presentation") if p else "Presentation"
+        if "present_original" in name:
+            path = ctx.get("pptx_url") or getattr(p, "original_pptx_path", "") or ""
+            return HTMLResponse(f"""<!DOCTYPE html><html><head><meta charset=utf-8>
+<title>Original PPT</title><script src="https://cdn.tailwindcss.com"></script></head>
+<body class="bg-slate-950 text-white p-6 min-h-screen">
+<a href="/presentations/{pid}/edit" class="text-teal-300">← Editor</a>
+<h1 class="text-2xl font-bold mt-4">{title} — Original PPT</h1>
+<p class="text-slate-400 mt-2">Download and open in PowerPoint / LibreOffice (no analysis).</p>
+<a class="inline-block mt-6 rounded-xl bg-teal-600 px-5 py-3 font-bold" href="{path}" download>Download PPTX</a>
+<a class="inline-block mt-6 ml-2 rounded-xl border border-white/20 px-5 py-3" href="{path}" target="_blank">Open</a>
+</body></html>""")
+        # present slides fallback
+        import json
+        slides_js = []
+        for s in slides:
+            slides_js.append({
+                "title": getattr(s, "title", "") or "",
+                "body": getattr(s, "body", "") or "",
+                "image": getattr(s, "image_path", None) or getattr(s, "online_image_url", None) or "",
+                "bg": getattr(s, "bg_color", None) or "#0f172a",
+                "accent": getattr(s, "accent", None) or "#14b8a6",
+            })
+        return HTMLResponse(f"""<!DOCTYPE html><html><head><meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1">
+<title>{title}</title><script src="https://cdn.tailwindcss.com"></script></head>
+<body class="bg-slate-950 text-white min-h-screen flex flex-col">
+<header class="p-3 flex flex-wrap gap-2 items-center border-b border-white/10">
+<a class="text-teal-300 text-sm" href="/presentations/{pid}/edit">← Editor</a>
+<button type="button" onclick="prev()" class="px-3 py-1 rounded bg-slate-800">Prev</button>
+<button type="button" onclick="next()" class="px-3 py-1 rounded bg-teal-700 font-bold">Next</button>
+<span id="pos" class="text-sm text-slate-400"></span>
+</header>
+<main id="stage" class="flex-1 flex items-center justify-center p-6"></main>
+<script>
+const SLIDES = {json.dumps(slides_js)};
+let i = 0;
+function render() {{
+  const s = SLIDES[i] || {{title:"(empty)", body:"", bg:"#0f172a", accent:"#14b8a6"}};
+  document.getElementById("pos").textContent = (i+1) + " / " + SLIDES.length;
+  const st = document.getElementById("stage");
+  st.style.background = s.bg;
+  st.innerHTML = "<div class=\"max-w-3xl w-full\"><h1 class=\"text-3xl font-black mb-4\" style=\"color:"+s.accent+"\">"+s.title+"</h1><div class=\"text-lg whitespace-pre-wrap leading-relaxed\">"+s.body+"</div>"+(s.image?"<img src=\""+s.image+"\" class=\"mt-4 max-h-64 rounded-xl\">":"")+"</div>";
+}}
+function next() {{ if (i < SLIDES.length-1) {{ i++; render(); }} }}
+function prev() {{ if (i > 0) {{ i--; render(); }} }}
+document.addEventListener("keydown", e => {{ if (e.key==="ArrowRight"||e.key===" ") next(); if (e.key==="ArrowLeft") prev(); }});
+render();
+</script></body></html>""")
+
+
 
 
 def gen_login_number() -> str:
@@ -71,6 +174,13 @@ DURATION_DAYS = {"week": 7, "month": 30, "year": 365}
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # ensure templates on disk even if deploy omitted them
+    try:
+        _restore_packaged_templates()
+        print("restore packaged templates in lifespan")
+    except Exception as _re:
+        print("restore templates warn", _re)
+
     create_db_and_tables()
 
     # Comprehensive column migrations (create_all does not ALTER existing tables)
@@ -1125,7 +1235,7 @@ async def present_mode(
                 s.images_json = _json.dumps([s.image_path])
             except Exception: pass
     
-    return templates.TemplateResponse("presenter/present.html", {
+    return _safe_template("presenter/present.html", {
         "request": request, "user": user, "presentation": p, "slides": slides, "shared": False,
     })
 
@@ -1171,7 +1281,7 @@ async def present_original_pptx(
         raise HTTPException(404, "No original PPT uploaded for this presentation. Import a .pptx first.")
     ctx = {"request": request, "user": user, "presentation": p, "pptx_url": path}
     try:
-        return templates.TemplateResponse("presenter/present_original.html", ctx)
+        return _safe_template("presenter/present_original.html", ctx)
     except Exception as e:
         print("present_original template missing, using inline:", e)
         # Inline fallback so deploy never 500s if file omitted from upload
@@ -1470,7 +1580,7 @@ async def shared_present(token: str, request: Request, session: Session = Depend
         raise HTTPException(404, "Link not found")
     slides = session.exec(select(Slide).where(Slide.presentation_id == p.id).order_by(Slide.position)).all()
     # guest present — limited eleon (read-only Q&A)
-    return templates.TemplateResponse("presenter/present.html", {
+    return _safe_template("presenter/present.html", {
         "request": request, "user": None, "presentation": p, "slides": slides, "shared": True,
     })
 
