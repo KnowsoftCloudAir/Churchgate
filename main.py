@@ -1130,22 +1130,67 @@ async def present_mode(
     })
 
 
+
+@app.post("/presentations/{pid}/upload-original-pptx")
+async def upload_original_pptx(
+    pid: int,
+    file: UploadFile = File(...),
+    user: User = Depends(require_user),
+    session: Session = Depends(get_session),
+):
+    """Store original PPT/PPTX for direct presentation only (no slide extraction)."""
+    p = session.get(Presentation, pid)
+    if not p or p.owner_id != user.id:
+        raise HTTPException(404)
+    fname = (file.filename or "deck.pptx").lower()
+    if not fname.endswith((".pptx", ".ppt")):
+        raise HTTPException(400, "Please upload a .pptx or .ppt file")
+    data = await file.read()
+    if len(data) > 40_000_000:
+        raise HTTPException(400, "File too large (max 40MB)")
+    ppt_name = f"orig_{pid}_{secrets.token_hex(4)}.pptx"
+    (UPLOAD_SLIDES / ppt_name).write_bytes(data)
+    p.original_pptx_path = f"/static/uploads/slides/{ppt_name}"
+    p.updated_at = datetime.utcnow()
+    session.add(p)
+    session.commit()
+    return RedirectResponse(f"/presentations/{pid}/present-original", status_code=303)
+
+
 @app.get("/presentations/{pid}/present-original", response_class=HTMLResponse)
 async def present_original_pptx(
     pid: int, request: Request,
     user: User = Depends(require_user), session: Session = Depends(get_session),
 ):
-    """Present the uploaded PPT/PPTX directly (Office viewer + download fallback)."""
+    """Present the uploaded PPT/PPTX directly — no analysis. Download or keep on device."""
     p = session.get(Presentation, pid)
     if not p or p.owner_id != user.id:
         raise HTTPException(404)
     path = getattr(p, "original_pptx_path", None)
     if not path:
-        # try find any stored
         raise HTTPException(404, "No original PPT uploaded for this presentation. Import a .pptx first.")
-    return templates.TemplateResponse("presenter/present_original.html", {
-        "request": request, "user": user, "presentation": p, "pptx_url": path,
-    })
+    ctx = {"request": request, "user": user, "presentation": p, "pptx_url": path}
+    try:
+        return templates.TemplateResponse("presenter/present_original.html", ctx)
+    except Exception as e:
+        print("present_original template missing, using inline:", e)
+        # Inline fallback so deploy never 500s if file omitted from upload
+        title = (p.title or "Presentation").replace("<", "")
+        pptx_url = path
+        body = f"""<!DOCTYPE html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
+<title>Original PPT — {title}</title><script src="https://cdn.tailwindcss.com"></script></head>
+<body class="min-h-screen bg-slate-950 text-slate-100 p-6">
+<a class="text-teal-300 text-sm" href="/presentations/{pid}/edit">← Editor</a>
+<h1 class="text-2xl font-bold mt-3">{title} · Original PPT</h1>
+<p class="text-slate-400 mt-2 text-sm">Direct file — no conversion. Download and open in PowerPoint / LibreOffice.</p>
+<p class="text-xs text-slate-500 mt-2 break-all">{pptx_url}</p>
+<div class="mt-6 flex flex-wrap gap-3">
+  <a class="rounded-xl bg-teal-600 px-5 py-2.5 font-bold" href="{pptx_url}" download>Download PPTX</a>
+  <a class="rounded-xl border border-white/20 px-5 py-2.5" href="{pptx_url}" target="_blank">Open file</a>
+  <a class="rounded-xl bg-indigo-600 px-5 py-2.5 font-bold" href="/presentations/{pid}/present">Eleon slides</a>
+</div>
+</body></html>"""
+        return HTMLResponse(body)
 
 
 
