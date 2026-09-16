@@ -77,7 +77,7 @@ def _restore_packaged_templates() -> None:
         for f in src_pres.iterdir():
             if f.is_file():
                 target = dst_pres / f.name
-                if not target.exists() or target.stat().st_size < 100:
+                if (not target.exists()) or target.stat().st_size < 100 or f.name in ("present.html", "editor.html", "present_original_live.html", "original_scripts.html"):
                     shutil.copy2(f, target)
                     print("restored presenter/" + f.name)
 
@@ -335,34 +335,134 @@ async def lifespan(app: FastAPI):
         except Exception as se:
             print("sub settings seed:", se)
 
-        # --- Demo presentation ---
+        # --- Demo presentation (always ensure rich 5-slide showcase) ---
         pres = session.exec(
             select(Presentation).where(Presentation.owner_id == demo.id, Presentation.title == "Eleon Demo Deck")
         ).first()
+        if pres:
+            nslides = len(session.exec(select(Slide).where(Slide.presentation_id == pres.id)).all())
+            if nslides < 5:
+                for s in session.exec(select(Slide).where(Slide.presentation_id == pres.id)).all():
+                    session.delete(s)
+                session.commit()
+                session.delete(pres)
+                session.commit()
+                pres = None
         if not pres:
             pres = Presentation(owner_id=demo.id, title="Eleon Demo Deck", theme="churchgate")
             session.add(pres)
             session.commit()
             session.refresh(pres)
+            # Showcase deck: 5 slides — pictures + all chart types
             demo_slides = [
-                ("Welcome to Eleon", "Your presentation partner from Knowsoft.\nDesign · Present · Answer.", "Eleon helps you turn documents into attractive slides and present with voice commands."),
-                ("What Eleon can do", "• Import PDF or text into slides\n• Enhance colours and animations\n• Voice: next, previous, go to slide\n• Q&A from your content", "Document import, enhance panel, PDF export, share link, and Eleon probe."),
-                ("Demo talking points", "Revenue grew 24% year on year.\nThree regions: Lagos, Abuja, Port Harcourt.\nNext goal: expand training workshops.", "Sample figures for Q&A: growth 24%, cities Lagos Abuja Port Harcourt, focus on workshops."),  # chart filled below
-                ("Thank you", "Thank you for your attention.\nAny questions?", "Closing slide. Eleon waits one minute for questions then goes off."),
+                {
+                    "title": "Welcome to Knowsoft Eleon",
+                    "body": "Your presentation partner.\n• Build slides with live preview\n• Charts, images & voice probe\n• Present online or offline pack",
+                    "extra_data": "Knowsoft Eleon demo",
+                    "icon_name": "rocket",
+                    "pattern": "gradient_teal",
+                    "animation_in": "float3d",
+                    "online_image_url": "https://images.unsplash.com/photo-1557804506-669a67965ba0?w=900&h=500&fit=crop",
+                    "layout_style": "image_right",
+                    "chart_type": "",
+                    "chart_data": "",
+                    "chart_effect": "grow",
+                    "eleon_script": "Welcome to Knowsoft Eleon, your presentation partner. Build slides, add charts and images, and present with the Eleon voice probe.",
+                },
+                {
+                    "title": "Bar chart — attendance",
+                    "body": "Sample numeric series as a professional bar chart.\nEleon grows the bars during presentation.",
+                    "extra_data": "Knowsoft Eleon demo",
+                    "icon_name": "chart",
+                    "pattern": "mesh_indigo",
+                    "animation_in": "zoom",
+                    "online_image_url": "https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=900&h=500&fit=crop",
+                    "layout_style": "title_body",
+                    "chart_type": "bar",
+                    "chart_data": "Mon:42,Tue:55,Wed:48,Thu:61,Fri:70",
+                    "chart_effect": "grow",
+                    "show_data_table": True,
+                    "chart_label_mode": "outside",
+                    "eleon_script": "Here is a bar chart of weekly attendance. Values grow on entry so the audience sees the trend clearly.",
+                },
+                {
+                    "title": "Pie & line — mix of views",
+                    "body": "Pie for share of categories.\nUse line charts for trends over time.",
+                    "extra_data": "Knowsoft Eleon demo",
+                    "icon_name": "growth",
+                    "pattern": "aurora",
+                    "animation_in": "slideLeft",
+                    "online_image_url": "https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=900&h=500&fit=crop",
+                    "layout_style": "image_left",
+                    "chart_type": "pie",
+                    "chart_data": "Youth:35,Adults:40,Seniors:15,Visitors:10",
+                    "chart_effect": "3d",
+                    "chart_label_mode": "inside",
+                    "eleon_script": "This pie chart shows category share. Three D perspective and bold labels make the story easy to follow.",
+                },
+                {
+                    "title": "Race numbers — impact",
+                    "body": "Racing bars animate values competing side by side.\nGreat for fundraising or KPI showdowns.",
+                    "extra_data": "Knowsoft Eleon demo",
+                    "icon_name": "target",
+                    "pattern": "sunset",
+                    "animation_in": "flip",
+                    "online_image_url": "https://images.unsplash.com/photo-1504384764586-bb4cdc1707b0?w=900&h=500&fit=crop",
+                    "layout_style": "title_body",
+                    "chart_type": "bar",
+                    "chart_data": "Goal A:80,Goal B:65,Goal C:92,Goal D:50",
+                    "chart_effect": "race",
+                    "show_data_table": True,
+                    "eleon_script": "Race mode. Watch each goal bar run across the track. Use this for impact metrics and friendly competition.",
+                },
+                {
+                    "title": "Thank you — try it yourself",
+                    "body": "• Edit any slide in the preparation panel\n• Add your own charts and pictures\n• Present with Eleon probe & autoplay\n• Export Offline pack or PowerPoint",
+                    "extra_data": "Knowsoft Eleon",
+                    "icon_name": "star",
+                    "pattern": "gold_lines",
+                    "animation_in": "zoom",
+                    "online_image_url": "https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=900&h=500&fit=crop",
+                    "layout_style": "centered",
+                    "chart_type": "doughnut",
+                    "chart_data": "Done:70,Next:20,Ideas:10",
+                    "chart_effect": "grow",
+                    "chart_label_mode": "outside",
+                    "eleon_script": "Thank you for watching this short tour. Open the editor, create your own slides, and present with Eleon.",
+                },
             ]
-            for i, (title, body, extra) in enumerate(demo_slides):
-                session.add(Slide(
-                    presentation_id=pres.id, position=i, title=title, body=body, extra_data=extra,
-                    animation_in=["float3d", "cube", "bounceIn", "zoom"][i % 4],
-                    accent="#14b8a6", bg_color="#0f172a",
-                    layout_style="centered" if i == 0 else ("chart" if i == 2 else "title_body"),
-                    icon_name=["rocket", "star", "growth", "check"][i % 4],
-                    chart_type="doughnut" if i == 2 else "",
-                    chart_data="Lagos:40,Abuja:30,PH:20,Others:10" if i == 2 else "",
-                    word_animation="cascade",
+            for i, pl in enumerate(demo_slides):
+                sk = dict(
+                    presentation_id=pres.id,
+                    position=i,
+                    title=pl["title"],
+                    body=pl["body"],
+                    extra_data=pl.get("extra_data") or "",
+                    icon_name=pl.get("icon_name") or "",
+                    pattern=pl.get("pattern") or "gradient_teal",
+                    animation_in=pl.get("animation_in") or "fade",
+                    animation_out="fade",
+                    online_image_url=pl.get("online_image_url"),
+                    layout_style=pl.get("layout_style") or "title_body",
+                    chart_type=pl.get("chart_type") or "",
+                    chart_data=pl.get("chart_data") or "",
+                    bg_color="#0f172a",
+                    accent="#14b8a6",
+                    word_emphasis=True,
                     keyword_animation=True,
-                    online_image_url="https://picsum.photos/seed/eleon" + str(i) + "/900/500" if i == 1 else None,
-                ))
+                )
+                if hasattr(Slide, "chart_effect"):
+                    sk["chart_effect"] = pl.get("chart_effect") or "grow"
+                if hasattr(Slide, "show_data_table"):
+                    sk["show_data_table"] = bool(pl.get("show_data_table"))
+                if hasattr(Slide, "chart_label_mode"):
+                    sk["chart_label_mode"] = pl.get("chart_label_mode") or "outside"
+                if hasattr(Slide, "eleon_script"):
+                    sk["eleon_script"] = pl.get("eleon_script") or ""
+                if hasattr(Slide, "images_json") and pl.get("online_image_url"):
+                    import json as _json
+                    sk["images_json"] = _json.dumps([pl["online_image_url"]])
+                session.add(Slide(**sk))
             session.commit()
         session.commit()
         print("✅ Admin: admin@eleon.knowsoft / admin123")
