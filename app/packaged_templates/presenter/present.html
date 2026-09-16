@@ -875,7 +875,7 @@
       if (selectedVoice) u.voice = selectedVoice;
       u.onend = () => { if (myToken === speakToken) done(); };
       u.onerror = () => { if (myToken === speakToken) done(); };
-      window.try{document.getElementById('floatProbe')?.classList.add('speaking-glow')}catch(e){}
+      try{ var _fp=document.getElementById('floatProbe'); if(_fp) _fp.classList.add('speaking-glow'); }catch(e){}
       speechSynthesis.speak(u);
       const keepAlive = setInterval(() => {
         if (!speaking || myToken !== speakToken) { clearInterval(keepAlive); return; }
@@ -1000,7 +1000,7 @@
         try {
           bgMusic.src = document.getElementById('musicTrack').value;
           bgMusic.volume = 0.12;
-          bgMusic.play().then(()=>{ musicOn=true; document.getElementById('musicBtn').textContent='🎵 On'; }).catch(()=>{});
+          bgMusic.play().then(function(){ musicOn=true; var mb=document.getElementById('musicBtn'); if(mb) mb.textContent='🎵 On'; }).catch(function(){});
         } catch(e){}
       }
       (async () => {
