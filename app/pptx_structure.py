@@ -48,6 +48,8 @@ def extract_pptx_structure(data: bytes, max_slides: int = 50) -> List[dict]:
                 "body": body,
                 "notes": notes,
                 "eleon_speak": speak[:2000],
+                "transition": "fromRight",
+                "motion": "grow",
             })
     except Exception as e:
         out.append({

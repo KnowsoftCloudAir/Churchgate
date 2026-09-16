@@ -1384,6 +1384,8 @@ async def save_original_scripts(
             "body": (form.get(f"body_{i}") or "")[:4000],
             "notes": "",
             "eleon_speak": (form.get(f"speak_{i}") or "")[:2000],
+            "transition": (form.get(f"transition_{i}") or "fromRight")[:40],
+            "motion": (form.get(f"motion_{i}") or "grow")[:20],
         })
     from app.pptx_structure import scripts_to_json
     p.original_pptx_scripts = scripts_to_json(scripts)
@@ -1450,6 +1452,11 @@ async def present_original_pptx(
     if not p or p.owner_id != user.id:
         raise HTTPException(404)
     path = getattr(p, "original_pptx_path", None)
+    # Prefer studio + live present flow when structure exists
+    scripts_raw = getattr(p, "original_pptx_scripts", None)
+    if scripts_raw:
+        return RedirectResponse(f"/presentations/{pid}/original-scripts", status_code=303)
+
     if not path:
         raise HTTPException(404, "No original PPT uploaded for this presentation. Import a .pptx first.")
     ctx = {"request": request, "user": user, "presentation": p, "pptx_url": path}

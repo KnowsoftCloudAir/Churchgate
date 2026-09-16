@@ -124,7 +124,8 @@ let i = 0, auto = false, speakToken = 0;
 function render() {
   const s = SLIDES[i] || {title:"Empty", body:"", eleon_speak:""};
   document.getElementById("pos").textContent = (i+1) + " / " + SLIDES.length;
-  const anim = ANIMS[i % ANIMS.length];
+  const map = {fromRight:"anim-fromRight",fromLeft:"anim-fromLeft",bounceIn:"anim-bounceIn",glowRise:"anim-glowRise",flipIn:"anim-flipIn",zoomGlow:"anim-zoomGlow",fade:"anim-fromRight"};
+  const anim = map[s.transition] || ANIMS[i % ANIMS.length];
   const card = document.getElementById("card");
   card.className = "slide-card glow " + anim;
   card.innerHTML = `
