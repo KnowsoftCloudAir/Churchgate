@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Eleon scripts — {{ presentation.title }}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <header class="border-b border-white/10 px-4 py-3 flex flex-wrap gap-2 items-center">
+    <a href="/presentations/{{ presentation.id }}/edit" class="text-teal-300 text-sm">← Editor</a>
+    <h1 class="font-bold">Original PPT · Eleon speak scripts</h1>
+    <span class="text-xs text-slate-400">Structure preserved · edit what Eleon says on autoplay</span>
+    <span class="flex-1"></span>
+    <a href="/presentations/{{ presentation.id }}/present-original-live" class="rounded-xl bg-teal-600 px-3 py-1.5 text-sm font-bold">Dramatic present</a>
+    {% if presentation.original_pptx_path %}
+    <a href="{{ presentation.original_pptx_path }}" download class="rounded-xl bg-amber-700 px-3 py-1.5 text-sm font-bold">Download original PPT</a>
+    {% endif %}
+  </header>
+  <main class="max-w-4xl mx-auto p-4 space-y-4">
+    <p class="text-sm text-slate-400">Each card is one slide from your uploaded PowerPoint. Titles and body text are read from the file (structure kept). Write or refine <strong class="text-teal-200">Eleon speak</strong> — that is what the presenter voice says in autoplay.</p>
+    {% if not scripts %}
+    <div class="rounded-2xl border border-amber-500/30 bg-amber-950/30 p-4 text-sm">
+      No structure yet. Upload a PPT via <strong>Store PPT</strong> or Import, then return here.
+    </div>
+    {% endif %}
+    <form method="post" action="/presentations/{{ presentation.id }}/original-scripts" class="space-y-4">
+      {% for s in scripts %}
+      <div class="rounded-2xl border border-white/10 bg-slate-900/60 p-4 space-y-2">
+        <div class="flex items-center gap-2">
+          <span class="text-xs font-bold text-teal-300">Slide {{ loop.index }}</span>
+          <input type="text" name="title_{{ loop.index0 }}" value="{{ s.title }}" class="flex-1 rounded-lg bg-slate-800 border border-white/10 px-3 py-1.5 text-sm font-semibold">
+        </div>
+        <label class="text-[10px] text-slate-500 uppercase tracking-wide">Slide content (from PPT — editable reference)</label>
+        <textarea name="body_{{ loop.index0 }}" rows="3" class="w-full rounded-lg bg-slate-950 border border-white/10 px-3 py-2 text-sm text-slate-300">{{ s.body }}</textarea>
+        <label class="text-[10px] text-teal-400/80 uppercase tracking-wide">Eleon speak (autoplay voice)</label>
+        <textarea name="speak_{{ loop.index0 }}" rows="3" class="w-full rounded-lg bg-slate-950 border border-teal-500/30 px-3 py-2 text-sm" placeholder="What Eleon should say when this slide is shown…">{{ s.eleon_speak }}</textarea>
+      </div>
+      {% endfor %}
+      <input type="hidden" name="count" value="{{ scripts|length }}">
+      <button type="submit" class="rounded-xl bg-teal-600 px-5 py-2.5 font-bold">Save scripts</button>
+    </form>
+  </main>
+</body>
+</html>

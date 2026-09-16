@@ -59,6 +59,7 @@ class Presentation(SQLModel, table=True):
     footer_text: str = Field(default="")
     default_pattern: str = Field(default="gradient_teal")
     original_pptx_path: Optional[str] = Field(default=None)
+    original_pptx_scripts: Optional[str] = Field(default=None, sa_column=Column(Text))  # JSON list of {title, body, eleon_speak}
 
 
 class Slide(SQLModel, table=True):
@@ -92,6 +93,7 @@ class Slide(SQLModel, table=True):
     chart_effect: str = Field(default="grow")
     show_data_table: bool = Field(default=False)
     chart_label_mode: str = Field(default="outside")
+    eleon_script: str = Field(default="", sa_column=Column(Text))  # what Eleon speaks on autoplay
 
 
 class EvalSession(SQLModel, table=True):

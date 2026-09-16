@@ -258,6 +258,7 @@ async def lifespan(app: FastAPI):
                 addcol("slide", col, ddl)
 
             addcol("presentation", "original_pptx_path", "ALTER TABLE presentation ADD COLUMN original_pptx_path VARCHAR")
+            addcol("presentation", "original_pptx_scripts", "ALTER TABLE presentation ADD COLUMN original_pptx_scripts TEXT")
             addcol("presentation", "logo_path", "ALTER TABLE presentation ADD COLUMN logo_path VARCHAR")
             addcol("presentation", "footer_text", "ALTER TABLE presentation ADD COLUMN footer_text VARCHAR DEFAULT ''")
             addcol("presentation", "default_pattern", "ALTER TABLE presentation ADD COLUMN default_pattern VARCHAR DEFAULT 'gradient_teal'")
@@ -511,61 +512,65 @@ def document_to_slide_payloads(text: str, max_slides: int = 10) -> list:
     return slides
 
 
-def pptx_to_slide_payloads(data: bytes, max_slides: int = 30) -> list:
-    """Import slides from a PowerPoint (.pptx) file for Eleon to present."""
-    brand = "Knowsoft Eleon"
+def pptx_to_slide_payloads(data: bytes, max_slides: int = 40) -> list:
+    """Import PPTX keeping each slide structure; seed eleon_script from notes/body."""
     try:
         from pptx import Presentation as PP
-        from pptx.enum.shapes import MSO_SHAPE_TYPE
     except Exception as e:
-        return [{"title": "PPTX import error", "body": str(e), "extra_data": brand}]
-
+        return [{"title": "PowerPoint import", "body": f"python-pptx required: {e}", "extra_data": "Knowsoft Eleon", "eleon_script": ""}]
+    import io
     prs = PP(io.BytesIO(data))
-    slides = []
-    for i, slide in enumerate(prs.slides):
-        if i >= max_slides:
+    brand = "Knowsoft Eleon · Original PPT structure"
+    payloads = []
+    for si, slide in enumerate(prs.slides):
+        if len(payloads) >= max_slides:
             break
-        texts = []
+        titles, bodies, notes_txt = [], [], ""
         for shape in slide.shapes:
-            if not shape.has_text_frame:
+            if not getattr(shape, "has_text_frame", False):
                 continue
-            for para in shape.text_frame.paragraphs:
-                t = "".join([r.text for r in para.runs]).strip()
-                if t:
-                    texts.append(t)
-        if not texts:
-            texts = [f"Slide {i+1}"]
-        title = texts[0][:120]
-        body_lines = []
-        for t in texts[1:8]:
-            body_lines.append(("• " if not t.startswith("•") else "") + t[:200])
-        body = "\n".join(body_lines) if body_lines else texts[0][:400]
-        slides.append({
-            "title": title,
-            "body": body,
-            "extra_data": brand + "\nImported from PowerPoint\n" + "\n".join(texts)[:2000],
-            "pattern": ["gradient_teal", "mesh_indigo", "aurora", "orbs"][i % 4],
-            "icon_name": "book",
-            "animation_in": "fade",
+            text = (shape.text_frame.text or "").strip()
+            if not text:
+                continue
+            if not titles and len(text) < 120 and "\n" not in text:
+                titles.append(text)
+            else:
+                bodies.append(text)
+        try:
+            if slide.has_notes_slide and slide.notes_slide.notes_text_frame:
+                notes_txt = (slide.notes_slide.notes_text_frame.text or "").strip()
+        except Exception:
+            notes_txt = ""
+        title = titles[0] if titles else f"Slide {si + 1}"
+        body = "\n".join(bodies) if bodies else ""
+        lines = [ln.strip() for ln in body.splitlines() if ln.strip()]
+        if len(lines) > 1:
+            body = "\n".join(("• " + ln if not ln.startswith(("•", "-", "*")) else ln) for ln in lines[:14])
+        script = notes_txt or body[:900]
+        payloads.append({
+            "title": title[:200],
+            "body": body[:4000],
+            "extra_data": brand,
+            "notes": notes_txt[:2000],
+            "eleon_script": script[:2000],
+            "pattern": "gradient_teal",
             "layout_style": "title_body",
+            "animation_in": "float3d",
+            "icon_name": "chart" if si % 3 == 1 else ("idea" if si % 3 == 2 else "target"),
         })
-    if not slides:
-        slides.append({"title": "Empty presentation", "body": "No text found in PPTX.", "extra_data": brand})
-    slides.append({
+    if not payloads:
+        payloads.append({"title": "Empty PPT", "body": "No text found.", "extra_data": brand, "eleon_script": ""})
+    payloads.append({
         "title": "Thank you",
-        "body": "Thank you for your attention.\\nAny questions?\\n\\nPowered by Knowsoft Eleon",
+        "body": "Thank you for your attention.\nQuestions are welcome.",
         "extra_data": brand,
+        "eleon_script": "Thank you for your attention. I am happy to take questions.",
         "pattern": "aurora",
-        "icon_name": "spark",
-        "animation_in": "zoom",
-        "layout_style": "centered",
+        "icon_name": "star",
     })
-    return slides
+    return payloads
 
 
-
-
-# ---------- Public / Auth ----------
 
 @app.get("/manifest.webmanifest")
 @app.get("/manifest.json")
@@ -1195,6 +1200,69 @@ async def chart_from_file(
 
 
 
+
+@app.get("/presentations/{pid}/ppt-scripts", response_class=HTMLResponse)
+async def ppt_scripts_page(
+    pid: int, request: Request,
+    user: User = Depends(require_user), session: Session = Depends(get_session),
+):
+    """Per-slide structure + Eleon autoplay speech scripts (preserves PPT form)."""
+    p = session.get(Presentation, pid)
+    if not p or p.owner_id != user.id:
+        raise HTTPException(404)
+    slides = session.exec(
+        select(Slide).where(Slide.presentation_id == pid).order_by(Slide.position)
+    ).all()
+    try:
+        return templates.TemplateResponse("presenter/ppt_scripts.html", {
+            "request": request, "user": user, "presentation": p, "slides": slides,
+        })
+    except Exception as e:
+        print("ppt_scripts template:", e)
+        # inline fallback
+        rows = []
+        for s in slides:
+            rows.append(f"""
+            <div class="rounded-xl border border-white/10 p-4 mb-4 bg-slate-900/50">
+              <h2 class="text-teal-300 font-bold">#{s.position+1} {s.title or ''}</h2>
+              <pre class="text-xs text-slate-400 whitespace-pre-wrap mt-2 max-h-24 overflow-auto">{(s.body or '')[:500]}</pre>
+              <form method="post" action="/presentations/{pid}/ppt-scripts/{s.id}" class="mt-3 space-y-2">
+                <label class="text-xs text-slate-400">Eleon speak script (autoplay)</label>
+                <textarea name="notes" rows="3" class="w-full rounded-lg p-2 text-slate-900 text-sm">{s.notes or ''}</textarea>
+                <button class="rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-bold">Save script</button>
+              </form>
+            </div>""")
+        html = f"""<!DOCTYPE html><html><head><meta charset=utf-8><script src="https://cdn.tailwindcss.com"></script>
+        <title>Scripts — {p.title}</title></head>
+        <body class="bg-slate-950 text-white p-6 max-w-3xl mx-auto">
+        <a href="/presentations/{pid}/edit" class="text-teal-300">← Editor</a>
+        <h1 class="text-2xl font-bold mt-3">Eleon speech scripts</h1>
+        <p class="text-slate-400 text-sm mb-4">Structure from your PPT is kept. Write what Eleon should say on autoplay for each slide.</p>
+        {''.join(rows) if rows else '<p>No slides yet. Import a PPT first.</p>'}
+        <a class="inline-block mt-4 rounded-xl bg-teal-600 px-4 py-2 font-bold" href="/presentations/{pid}/present">Present</a>
+        </body></html>"""
+        return HTMLResponse(html)
+
+
+@app.post("/presentations/{pid}/ppt-scripts/{sid}")
+async def ppt_scripts_save(
+    pid: int, sid: int,
+    notes: str = Form(""),
+    user: User = Depends(require_user),
+    session: Session = Depends(get_session),
+):
+    p = session.get(Presentation, pid)
+    s = session.get(Slide, sid)
+    if not p or not s or p.owner_id != user.id or s.presentation_id != pid:
+        raise HTTPException(404)
+    s.notes = notes or ""
+    p.updated_at = datetime.utcnow()
+    session.add(s)
+    session.add(p)
+    session.commit()
+    return RedirectResponse(f"/presentations/{pid}/ppt-scripts?saved={sid}", status_code=303)
+
+
 @app.get("/presentations/{pid}/present", response_class=HTMLResponse)
 async def present_mode(
     pid: int, request: Request,
@@ -1261,10 +1329,115 @@ async def upload_original_pptx(
     ppt_name = f"orig_{pid}_{secrets.token_hex(4)}.pptx"
     (UPLOAD_SLIDES / ppt_name).write_bytes(data)
     p.original_pptx_path = f"/static/uploads/slides/{ppt_name}"
+    try:
+        from app.pptx_structure import extract_pptx_structure, scripts_to_json
+        scripts = extract_pptx_structure(data)
+        p.original_pptx_scripts = scripts_to_json(scripts)
+    except Exception as e:
+        print("structure extract:", e)
     p.updated_at = datetime.utcnow()
     session.add(p)
     session.commit()
-    return RedirectResponse(f"/presentations/{pid}/present-original", status_code=303)
+    return RedirectResponse(f"/presentations/{pid}/original-scripts", status_code=303)
+
+
+
+@app.get("/presentations/{pid}/original-scripts", response_class=HTMLResponse)
+async def original_scripts_page(
+    pid: int, request: Request,
+    user: User = Depends(require_user), session: Session = Depends(get_session),
+):
+    p = session.get(Presentation, pid)
+    if not p or p.owner_id != user.id:
+        raise HTTPException(404)
+    from app.pptx_structure import scripts_from_json
+    scripts = scripts_from_json(getattr(p, "original_pptx_scripts", None))
+    try:
+        return templates.TemplateResponse("presenter/original_scripts.html", {
+            "request": request, "user": user, "presentation": p, "scripts": scripts,
+        })
+    except Exception as e:
+        print("scripts page template:", e)
+        return _safe_template("presenter/original_scripts.html", {
+            "request": request, "user": user, "presentation": p, "scripts": scripts,
+        })
+
+
+@app.post("/presentations/{pid}/original-scripts")
+async def save_original_scripts(
+    pid: int, request: Request,
+    user: User = Depends(require_user), session: Session = Depends(get_session),
+):
+    p = session.get(Presentation, pid)
+    if not p or p.owner_id != user.id:
+        raise HTTPException(404)
+    form = await request.form()
+    try:
+        count = int(form.get("count") or 0)
+    except Exception:
+        count = 0
+    scripts = []
+    for i in range(count):
+        scripts.append({
+            "index": i,
+            "title": (form.get(f"title_{i}") or f"Slide {i+1}")[:200],
+            "body": (form.get(f"body_{i}") or "")[:4000],
+            "notes": "",
+            "eleon_speak": (form.get(f"speak_{i}") or "")[:2000],
+        })
+    from app.pptx_structure import scripts_to_json
+    p.original_pptx_scripts = scripts_to_json(scripts)
+    p.updated_at = datetime.utcnow()
+    session.add(p)
+    session.commit()
+    return RedirectResponse(f"/presentations/{pid}/original-scripts", status_code=303)
+
+
+@app.get("/presentations/{pid}/present-original-live", response_class=HTMLResponse)
+async def present_original_live(
+    pid: int, request: Request,
+    user: User = Depends(require_user), session: Session = Depends(get_session),
+):
+    p = session.get(Presentation, pid)
+    if not p or p.owner_id != user.id:
+        raise HTTPException(404)
+    from app.pptx_structure import scripts_from_json
+    import json as _json
+    scripts = scripts_from_json(getattr(p, "original_pptx_scripts", None))
+    if not scripts:
+        raise HTTPException(400, "No original PPT structure. Use Store PPT first.")
+    scripts_json = _json.dumps(scripts, ensure_ascii=False)
+    try:
+        return templates.TemplateResponse("presenter/present_original_live.html", {
+            "request": request, "user": user, "presentation": p, "scripts_json": scripts_json,
+        })
+    except Exception as e:
+        print("live present template:", e)
+        # inline dramatic minimal
+        return HTMLResponse(f"""<!DOCTYPE html><html><head><meta charset=utf-8>
+<title>Dramatic present</title><script src="https://cdn.tailwindcss.com"></script>
+<style>
+.card{{max-width:900px;margin:2rem auto;padding:2rem;border-radius:1.5rem;background:#0f172a;border:1px solid #14b8a6;}}
+.anim{{animation:in .8s ease both}}@keyframes in{{from{{opacity:0;transform:translateX(60px)}}to{{opacity:1;transform:none}}}}
+</style></head><body class="bg-slate-950 text-white p-4">
+<button onclick="prev()" class="px-3 py-1 bg-slate-700 rounded">Prev</button>
+<button onclick="next()" class="px-3 py-1 bg-teal-600 rounded">Next</button>
+<button onclick="toggleAuto()" id="ba" class="px-3 py-1 bg-violet-700 rounded">Autoplay</button>
+<span id="pos"></span>
+<div id="c" class="card anim"></div>
+<script>
+const S={scripts_json}; let i=0,auto=false;
+function render(){{const s=S[i]||{{}};document.getElementById('pos').textContent=(i+1)+'/'+S.length;
+document.getElementById('c').className='card anim';
+document.getElementById('c').innerHTML='<h1 class="text-3xl font-black text-teal-300">'+(s.title||'')+'</h1><pre class="mt-4 whitespace-pre-wrap">'+(s.body||'')+'</pre>';
+if(auto){{speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(s.eleon_speak||s.title||'');u.onend=()=>{{if(auto&&i<S.length-1){{i++;render();}}}};speechSynthesis.speak(u);}}
+}}
+function next(){{if(i<S.length-1){{i++;render();}}}}
+function prev(){{if(i>0){{i--;render();}}}}
+function toggleAuto(){{auto=!auto;document.getElementById('ba').textContent=auto?'Stop':'Autoplay';if(auto)render();else speechSynthesis.cancel();}}
+render();
+</script></body></html>""")
+
 
 
 @app.get("/presentations/{pid}/present-original", response_class=HTMLResponse)
@@ -1466,6 +1639,11 @@ async def import_document(
             ppt_dest = UPLOAD_SLIDES / ppt_name
             ppt_dest.write_bytes(data)
             p.original_pptx_path = f"/static/uploads/slides/{ppt_name}"
+            try:
+                from app.pptx_structure import extract_pptx_structure, scripts_to_json
+                p.original_pptx_scripts = scripts_to_json(extract_pptx_structure(data))
+            except Exception as se:
+                print("structure:", se)
             session.add(p)
             session.commit()
         except Exception as e:
@@ -1480,18 +1658,22 @@ async def import_document(
         session.delete(s)
     session.commit()
     for i, pl in enumerate(payloads):
-        session.add(Slide(
+        _sk = dict(
             presentation_id=pid,
             position=i,
             title=pl.get("title") or f"Slide {i+1}",
             body=pl.get("body") or "",
             extra_data=pl.get("extra_data") or "Knowsoft Eleon",
+            notes=pl.get("notes") or "",
             animation_in=pl.get("animation_in") or ("zoom" if i == len(payloads) - 1 else "float3d"),
             animation_out="fade",
             pattern=pl.get("pattern") or "gradient_teal",
             icon_name=pl.get("icon_name") or "",
             layout_style=pl.get("layout_style") or "title_body",
-        ))
+        )
+        if hasattr(Slide, "eleon_script"):
+            _sk["eleon_script"] = pl.get("eleon_script") or pl.get("body") or ""
+        session.add(Slide(**_sk))
     p.updated_at = datetime.utcnow()
     session.add(p)
     session.commit()
@@ -1670,6 +1852,29 @@ async def translate_presentation(
     session.commit()
     return JSONResponse({"ok": True, "lang": lang, "slides": len(slides)})
 
+
+
+
+@app.get("/presentations/{pid}/export-offline")
+async def export_offline_html(
+    pid: int,
+    user: User = Depends(require_user),
+    session: Session = Depends(get_session),
+):
+    """Self-contained HTML presenter - works offline on the host device."""
+    p = session.get(Presentation, pid)
+    if not p or p.owner_id != user.id:
+        raise HTTPException(404)
+    slides = session.exec(
+        select(Slide).where(Slide.presentation_id == pid).order_by(Slide.position)
+    ).all()
+    from app.offline_export import build_offline_html
+    data = build_offline_html(p.title or "Eleon deck", slides, BASE)
+    return StreamingResponse(
+        io.BytesIO(data),
+        media_type="text/html; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="eleon_offline_{pid}.html"'},
+    )
 
 
 @app.get("/presentations/{pid}/export.pptx")
