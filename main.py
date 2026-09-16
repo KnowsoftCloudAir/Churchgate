@@ -130,6 +130,11 @@ def _safe_template(name: str, ctx: dict):
                 "image": getattr(s, "image_path", None) or getattr(s, "online_image_url", None) or "",
                 "bg": getattr(s, "bg_color", None) or "#0f172a",
                 "accent": getattr(s, "accent", None) or "#14b8a6",
+                "chartType": getattr(s, "chart_type", None) or "",
+                "chartData": getattr(s, "chart_data", None) or "",
+                "chartEffect": getattr(s, "chart_effect", None) or "grow",
+                "layout": getattr(s, "layout_style", None) or "title_body",
+                "eleonScript": getattr(s, "eleon_script", None) or "",
             })
         return HTMLResponse(f"""<!DOCTYPE html><html><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1">

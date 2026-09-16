@@ -10,7 +10,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
   <style>
     html,body{height:100%;margin:0;overflow:hidden;background:#020617;font-family:Inter,system-ui,sans-serif;}
-    .slide-stage{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:2rem 2rem 2rem 2rem;perspective:1200px;transition:padding .3s;}
+    .slide-stage{min-height:100vh;min-height:100dvh;display:flex;align-items:center;justify-content:center;position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:2rem 2rem 2rem 2rem;perspective:1200px;transition:padding .3s;}
     .ui-visible .slide-stage{padding:4.5rem 11rem 2rem 2rem;}
     @media(max-width:900px){.ui-visible .slide-stage{padding:4.5rem 1rem 2rem;}}
     .slide-card{max-width:min(1000px,94vw);width:100%;border-radius:1.5rem;padding:clamp(1.25rem,3vw,2.25rem);transform-style:preserve-3d;box-shadow:0 25px 80px rgba(0,0,0,.45);}
@@ -153,7 +153,7 @@
       filter: drop-shadow(0 22px 28px rgba(0,0,0,.55));
       border-radius: 8px;
     }
-    .slide-stage { position: absolute; inset: 0; overflow: hidden; }
+    .slide-stage { position: absolute; inset: 0; overflow: auto; min-height: 100vh; min-height: 100dvh; display: flex; align-items: center; justify-content: center; }
     .slide-stage img.slide-photo { max-height: 280px; max-width: 100%; object-fit: cover; }
     .backdrop-layer { position:absolute; inset:0; z-index:0; background-size:cover; background-position:center; pointer-events:none; }
 
@@ -644,7 +644,7 @@
   function fontStyle(s){
     const fam = s.fontFamily || 'Inter';
     const col = s.fontColor || '#e2e8f0';
-    return 'font-family:' + JSON.stringify(fam) + ',system-ui,sans-serif;color:' + col + ';';
+    return 'font-family:' + String(fam).replace(/[^a-zA-Z0-9 \-_,]/g,'') + ',system-ui,sans-serif;color:' + col + ';';
   }
   function fontSizeClass(s){
     return 'font-' + (s.fontSize || 'md');
@@ -694,9 +694,11 @@
   }
 
     function render() {
+    try {
     const s = SLIDES[idx] || {title:'',body:'',bg:'#0f172a',accent:'#14b8a6',animIn:'fade',layout:'title_body',wordAnim:'fadeUp'};
     keywordAnimOn = (s.wordEmphasis !== false) && (s.keywordAnim !== false);
     const stage = document.getElementById('stage');
+    if (!stage) { console.error('no #stage'); return; }
     const imgs = slideImages(s);
     const photo = imgs[0] || '';
     stage.className = 'slide-stage pat-' + (s.pattern || 'gradient_teal');
@@ -756,7 +758,8 @@
       // wrap stage children
       host = stage;
     }
-    host.innerHTML = `<div class="${anim} w-full max-w-5xl mx-auto px-4 py-6">${inner}</div>` + extras;
+    host.innerHTML = `<div class="${anim} w-full max-w-5xl mx-auto px-4 py-6" style="color:#e2e8f0">${inner}</div>` + extras;
+    if (stage) { stage.style.minHeight = '100vh'; stage.style.display = 'flex'; }
 
     if (chartInst) { try{chartInst.destroy()}catch(e){} chartInst=null; }
     if (s.chartType && parsed && effect !== 'race' && document.getElementById('slideChart')) {
@@ -829,6 +832,23 @@
       });
     }
     try { if (typeof syncLiveIndex === 'function') syncLiveIndex(); } catch (e) {}
+    } catch (err) {
+      console.error('render failed', err);
+      const st = document.getElementById('stage');
+      if (st) {
+        st.style.minHeight = '100vh';
+        st.style.display = 'flex';
+        st.style.alignItems = 'center';
+        st.style.justifyContent = 'center';
+        const s = (typeof SLIDES !== 'undefined' && SLIDES[idx]) ? SLIDES[idx] : {};
+        st.innerHTML = '<div style="max-width:40rem;padding:2rem;color:#e2e8f0;font-family:system-ui">'
+          + '<p style="color:#f87171;font-size:0.85rem">Render note: ' + String(err && err.message ? err.message : err) + '</p>'
+          + '<h1 style="font-size:2rem;font-weight:900;color:#5eead4">' + (s.title || '(no title)') + '</h1>'
+          + '<pre style="white-space:pre-wrap;margin-top:1rem;font-size:1rem">' + (s.body || '') + '</pre>'
+          + ((s.image || s.onlineImage) ? ('<img src="' + (s.image || s.onlineImage) + '" style="max-height:240px;margin-top:1rem;border-radius:12px">') : '')
+          + '</div>';
+      }
+    }
   }
 
   function speak(text, onend) {
@@ -1229,7 +1249,13 @@
     if (e.key==='/'){ e.preventDefault(); const p=document.getElementById('cmdPanel'); p.style.display = p.style.display==='block'?'none':'block'; showUI(); document.getElementById('cmd').focus(); }
   });
 
-  render();
+  if (!SLIDES || !SLIDES.length) {
+    const st = document.getElementById('stage');
+    if (st) st.innerHTML = '<div style="padding:2rem;color:#fbbf24;text-align:center"><h1 style="font-size:1.5rem">No slides yet</h1><p style="color:#94a3b8">Add slides in the editor, then Present again.</p><a href="#" onclick="history.back();return false" style="color:#5eead4">Back to editor</a></div>';
+  } else {
+    try { render(); } catch(e) { console.error(e); }
+  }
+  document.addEventListener('DOMContentLoaded', function(){ try { render(); } catch(e) {} });
   // Prefer auto voice if secure context
   if (window.isSecureContext && (window.SpeechRecognition||window.webkitSpeechRecognition)) {
     // voice stays off until user enables — more reliable permission
